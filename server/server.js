@@ -1,8 +1,8 @@
+const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const { clerkMiddleware } = require("@clerk/express");
-const path = require("path");
-require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
+require("dotenv").config({ path: path.resolve(__dirname, ".env") });
 
 if (!process.env.CLERK_PUBLISHABLE_KEY && process.env.VITE_CLERK_PUBLISHABLE_KEY) {
   process.env.CLERK_PUBLISHABLE_KEY = process.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -17,7 +17,7 @@ app.use(
   cors({
     origin: clientOrigin,
     credentials: true,
-  }),
+  })
 );
 app.use(clerkMiddleware());
 app.use(express.json());
@@ -34,6 +34,7 @@ app.get("/", (req, res) => {
   res.json({
     name: "Travel Nest API",
     status: "running",
+    freeApis: ["Gemini API", "Overpass API", "OSRM", "Nominatim", "Browser Geolocation"],
     endpoints: [
       "GET /api/auth/me",
       "POST /api/extract-schedule",

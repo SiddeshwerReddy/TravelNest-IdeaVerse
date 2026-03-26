@@ -1,17 +1,70 @@
-exports.fetchPois = async (req, res) => {
-  const { lat, lng, freeMinutes } = req.query;
+const {
+  buildFallbackPois,
+  computeDiscoveryRadius,
+  fetchNearbyPois,
+} = require("../services/overpassService");
+const { parseInterestInput } = require("../utils/interests");
 
-  if (!lat || !lng) {
-    return res.status(400).json({
-      error: "lat and lng query parameters are required.",
+exports.fetchPois = async (req, res) => {
+  try {
+    const lat = Number(req.query.lat);
+    const lng = Number(req.query.lng);
+    const freeMinutes = Number(req.query.freeMinutes || 90);
+    const radiusMeters = req.query.radiusMeters ? Number(req.query.radiusMeters) : undefined;
+
+    if (Number.isNaN(lat) || Number.isNaN(lng)) {
+      return res.status(400).json({
+        error: "lat and lng query parameters are required.",
+      });
+    }
+
+    const travelerMode = req.query.travelerMode || "leisure";
+    const interests = parseInterestInput(req.query.interests);
+    const effectiveRadiusMeters = computeDiscoveryRadius({
+      freeMinutes,
+      radiusMeters,
+      travelerMode,
+    });
+    let pois = [];
+    let source = "overpass";
+
+    try {
+      pois = await fetchNearbyPois({
+        lat,
+        lng,
+        freeMinutes,
+        radiusMeters: effectiveRadiusMeters,
+        travelerMode,
+        interests,
+      });
+    } catch (error) {
+      console.warn("fetch-pois live lookup failed:", error.message);
+      pois = buildFallbackPois({
+        lat,
+        lng,
+        travelerMode,
+        interests,
+        freeMinutes,
+        radiusMeters: effectiveRadiusMeters,
+      });
+      source = "fallback";
+    }
+
+    res.json({
+      location: {
+        lat,
+        lng,
+      },
+      freeMinutes,
+      radiusMeters: effectiveRadiusMeters,
+      source,
+      count: pois.length,
+      pois,
+    });
+  } catch (error) {
+    console.error("fetchPois failed:", error);
+    res.status(500).json({
+      error: error.message || "Failed to fetch nearby POIs.",
     });
   }
-
-  return res.status(501).json({
-    message: "POI fetch scaffolded. Overpass integration will be implemented next.",
-    location: { lat, lng },
-    freeMinutes: freeMinutes || null,
-    nextStep:
-      "Query nearby POIs from Overpass and return a normalized pool for itinerary scoring.",
-  });
 };

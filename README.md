@@ -1,6 +1,6 @@
 # Travel Nest
 
-Travel Nest is an AI context-aware travel companion for business and leisure travelers. This first scaffold sets up the workspace package structure, a polished dark-mode React entry experience, and the backend route architecture for schedule extraction, POI discovery, and itinerary optimization.
+Travel Nest is an AI context-aware travel companion for business and leisure travelers. The app now includes the routed frontend experience, business and leisure setup flows, an itinerary dashboard with a live Leaflet map, and a backend pipeline for schedule extraction, POI discovery, routing checks, and itinerary synthesis.
 
 ## Package Setup
 
@@ -21,8 +21,30 @@ Server `package.json`
 - MongoDB with Mongoose
 - `multer` for PDF uploads
 - `pdf-parse` for schedule text extraction
-- `@google/genai` for Gemini integration
-- `axios` for Overpass and routing requests
+- `axios` for Gemini REST calls, Overpass, OSRM, and Nominatim
+
+## Free API Stack
+
+- Gemini API free tier for schedule understanding and itinerary refinement
+- Overpass API for nearby POIs
+- OSRM public API for route feasibility
+- Nominatim for free geocoding
+- Browser Geolocation API for leisure mode
+
+Google Maps, Google Places, and Google Distance Matrix are not required for this build.
+
+## Environment Setup
+
+Use [server/.env.example](server/.env.example) as the source of truth. I also created a local `server/.env` with safe placeholders so you can paste real values there.
+
+Required
+- `MONGO_URI`
+- `GEMINI_API_KEY`
+
+No key required
+- `OVERPASS_API_URL`
+- `OSRM_API_URL`
+- `NOMINATIM_USER_AGENT`
 
 ## Recommended Folder Structure
 
@@ -83,9 +105,9 @@ travel-nest/
 Routes
 - `/` -> `LandingPage`
 - `/mode` -> `ModeSelectionPage`
-- `/business-setup` -> future `BusinessSetupPage`
-- `/leisure-setup` -> future `LeisureSetupPage`
-- `/itinerary` -> future `ItineraryDashboardPage`
+- `/business-setup` -> `BusinessSetupPage`
+- `/leisure-setup` -> `LeisureSetupPage`
+- `/itinerary` -> `ItineraryDashboardPage`
 
 Component tree
 ```text
@@ -104,25 +126,27 @@ App
             |   +-- Business traveler card
             |   +-- Leisure traveler card
             |   `-- Capabilities summary
-            `-- PlaceholderPage
+            +-- BusinessSetupPage
+            +-- LeisureSetupPage
+            `-- ItineraryDashboardPage
 ```
 
 ## Backend API Shape
 
 `POST /api/extract-schedule`
 - Accepts a PDF file in the `schedulePdf` field
-- Intended flow: parse text, send context to Gemini, extract meetings and preferences, compute free time slots
+- Parses PDF text, asks Gemini for structured meeting extraction, geocodes the best location anchor, and computes free time slots
 
 `GET /api/fetch-pois`
 - Accepts `lat`, `lng`, and optional `freeMinutes`
-- Intended flow: call Overpass API, normalize nearby POIs, and return the candidate pool
+- Calls Overpass and returns a normalized nearby POI pool
 
 `POST /api/optimize-itinerary`
 - Accepts location, free time, traveler mode, and interests
-- Intended flow: apply cultural priority filtering, route feasibility checks, clustering, and Gemini JSON synthesis
+- Applies cultural weighting, route feasibility checks with OSRM, clustering, deterministic scheduling, and Gemini itinerary refinement
 
 ## Current Status
 
-- Landing page and mode selection page are implemented in React
-- Tailwind-ready styling is configured for the client
-- Backend routes and services are scaffolded with placeholder responses for the next implementation phase
+- Landing, mode selection, business setup, leisure setup, and itinerary dashboard are implemented
+- The itinerary dashboard renders a timeline plus a live OpenStreetMap/Leaflet map
+- The backend endpoints are implemented with free-API integrations and fallbacks

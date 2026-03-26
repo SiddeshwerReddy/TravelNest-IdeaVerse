@@ -5,15 +5,18 @@ import {
   SignUpButton,
   UserButton,
 } from "@clerk/clerk-react";
-import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
+import { BrowserRouter, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { Compass, MoonStar } from "lucide-react";
 import AuthSync from "./components/AuthSync.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
+import { PlannerProvider } from "./context/PlannerContext.jsx";
 import LandingPage from "./pages/LandingPage.jsx";
 import ModeSelectionPage from "./pages/ModeSelectionPage.jsx";
-import PlaceholderPage from "./pages/PlaceholderPage.jsx";
 import AuthPage from "./pages/AuthPage.jsx";
 import DashboardPage from "./pages/DashboardPage.jsx";
+import BusinessSetupPage from "./pages/BusinessSetupPage.jsx";
+import LeisureSetupPage from "./pages/LeisureSetupPage.jsx";
+import ItineraryDashboardPage from "./pages/ItineraryDashboardPage.jsx";
 
 const navItems = [
   { label: "Home", to: "/" },
@@ -25,11 +28,7 @@ const navItems = [
 ];
 
 function AppShell() {
-  const protectedPlaceholder = (title, description) => (
-    <ProtectedRoute>
-      <PlaceholderPage title={title} description={description} />
-    </ProtectedRoute>
-  );
+  const location = useLocation();
 
   return (
     <div className="relative min-h-screen overflow-hidden px-4 py-4 text-slate-100 sm:px-6 lg:px-8">
@@ -69,7 +68,7 @@ function AppShell() {
           <div className="flex items-center gap-3 self-start lg:self-auto">
             <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300 lg:flex">
               <MoonStar className="h-4 w-4 text-fuchsia-300" />
-              Dark Knight Devs aesthetic
+              Clerk secured + AI planning
             </div>
 
             <SignedOut>
@@ -108,26 +107,25 @@ function AppShell() {
             <Route path="/mode" element={<ModeSelectionPage />} />
             <Route
               path="/business-setup"
-              element={protectedPlaceholder(
-                "Business Traveler Setup",
-                "Next, we can add PDF schedule upload, meeting extraction, and a free-time dashboard for business travelers.",
-              )}
+              element={
+                <ProtectedRoute>
+                  <BusinessSetupPage />
+                </ProtectedRoute>
+              }
             />
             <Route
               path="/leisure-setup"
-              element={protectedPlaceholder(
-                "Leisure Traveler Setup",
-                "Next, we can connect browser geolocation, interest tagging, and nearby discovery preferences for leisure travelers.",
-              )}
+              element={
+                <ProtectedRoute>
+                  <LeisureSetupPage />
+                </ProtectedRoute>
+              }
             />
             <Route
               path="/itinerary"
               element={
                 <ProtectedRoute>
-                  <PlaceholderPage
-                    title="Interactive Itinerary Dashboard"
-                    description="Next, we can build the AI timeline, map overlays, route feasibility chips, and itinerary regeneration actions."
-                  />
+                  <ItineraryDashboardPage />
                 </ProtectedRoute>
               }
             />
@@ -148,9 +146,11 @@ function AppShell() {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <AuthSync />
-      <AppShell />
-    </BrowserRouter>
+    <PlannerProvider>
+      <BrowserRouter>
+        <AuthSync />
+        <AppShell />
+      </BrowserRouter>
+    </PlannerProvider>
   );
 }

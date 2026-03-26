@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useAuth } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import { Compass, LoaderCircle, MapPinned, Sparkles } from "lucide-react";
 import { usePlanner } from "../context/PlannerContext.jsx";
@@ -17,6 +18,7 @@ function Panel({ title, subtitle, children }) {
 
 export default function LeisureSetupPage() {
   const navigate = useNavigate();
+  const { getToken } = useAuth();
   const { plannerState, mergePlannerState } = usePlanner();
   const [interestInput, setInterestInput] = useState(plannerState.interests.join(", "));
   const [availableMinutes, setAvailableMinutes] = useState(plannerState.availableMinutes || 180);
@@ -104,13 +106,16 @@ export default function LeisureSetupPage() {
     setIsPreviewLoading(true);
 
     try {
-      const response = await fetchPois({
-        lat,
-        lng,
-        freeMinutes: availableMinutes,
-        travelerMode: "leisure",
-        interests: interestInput,
-      });
+      const response = await fetchPois(
+        {
+          lat,
+          lng,
+          freeMinutes: availableMinutes,
+          travelerMode: "leisure",
+          interests: interestInput,
+        },
+        getToken
+      );
 
       mergePlannerState({
         mode: "leisure",
@@ -123,6 +128,8 @@ export default function LeisureSetupPage() {
         notes,
         availableMinutes,
         rawPois: response.pois,
+        poiSource: response.source,
+        poiRadiusMeters: response.radiusMeters,
       });
     } catch (requestError) {
       setError(requestError.response?.data?.error || "Unable to fetch nearby places right now.");
@@ -144,18 +151,21 @@ export default function LeisureSetupPage() {
     setIsGenerating(true);
 
     try {
-      const response = await optimizeItinerary({
-        travelerMode: "leisure",
-        location: {
-          lat,
-          lng,
-          label: areaLabel || "Current location",
+      const response = await optimizeItinerary(
+        {
+          travelerMode: "leisure",
+          location: {
+            lat,
+            lng,
+            label: areaLabel || "Current location",
+          },
+          interests: parseInterestString(interestInput),
+          notes,
+          availableMinutes,
+          rawPois: plannerState.rawPois,
         },
-        interests: parseInterestString(interestInput),
-        notes,
-        availableMinutes,
-        rawPois: plannerState.rawPois,
-      });
+        getToken
+      );
 
       mergePlannerState({
         mode: "leisure",
@@ -168,6 +178,8 @@ export default function LeisureSetupPage() {
         notes,
         availableMinutes,
         itinerary: response.itinerary,
+        ai: response.ai,
+        poiSource: response.poiSource || plannerState.poiSource,
       });
 
       navigate("/itinerary");

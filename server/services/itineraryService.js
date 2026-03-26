@@ -29,6 +29,13 @@ function getInterestCategoryMatches(poi, interests) {
   });
 }
 
+function getNoteMatches(poi, notes) {
+  const noteTerms = parseInterestInput(notes);
+  const haystack = `${poi.category || ""} ${poi.categoryLabel || ""} ${poi.name || ""} ${poi.tagSummary || ""}`.toLowerCase();
+
+  return noteTerms.filter((term) => term.length > 2 && haystack.includes(term));
+}
+
 function deriveFreeSlots({ travelerMode, freeSlots, availableMinutes }) {
   if (Array.isArray(freeSlots) && freeSlots.length > 0) {
     return freeSlots;
@@ -50,7 +57,7 @@ function computeInterestMatches(poi, interests) {
   return Array.from(new Set([...directMatches, ...categoryMatches]));
 }
 
-function optimizeCandidatePlaces({ pois, travelerMode, interests, freeSlots }) {
+function optimizeCandidatePlaces({ pois, travelerMode, interests, freeSlots, notes = "", limit = 10 }) {
   const interestTerms = parseInterestInput(interests);
   const maxUsefulMinutes = Math.max(...freeSlots.map((slot) => slot.durationMinutes), 90);
   const clusterCounts = new Map();
@@ -59,6 +66,7 @@ function optimizeCandidatePlaces({ pois, travelerMode, interests, freeSlots }) {
     .filter((poi) => Number.isFinite(Number(poi?.lat)) && Number.isFinite(Number(poi?.lng)))
     .map((poi) => {
       const interestMatches = computeInterestMatches(poi, interestTerms);
+      const noteMatches = getNoteMatches(poi, notes);
       const lat = Number(poi.lat);
       const lng = Number(poi.lng);
       const travelToleranceDivisor = maxUsefulMinutes >= 300 ? 35 : maxUsefulMinutes >= 180 ? 28 : 20;
@@ -71,19 +79,27 @@ function optimizeCandidatePlaces({ pois, travelerMode, interests, freeSlots }) {
             ? 0.6
             : 0;
       const interestScore = interestMatches.length * 4.2;
+      const noteScore = noteMatches.length * 2.2;
+      const premiumInterestBonus =
+        interestMatches.length > 0 && /museum|historic|gallery|park|viewpoint|restaurant|cafe/.test(poi.category)
+          ? 1
+          : 0;
 
       const score =
         poi.cultureWeight * 2.2 +
         interestScore +
+        noteScore +
         accessibilityScore +
         fitScore +
-        modeBonus;
+        modeBonus +
+        premiumInterestBonus;
 
       return {
         ...poi,
         lat,
         lng,
         interestMatches,
+        noteMatches,
         score: Number(score.toFixed(2)),
         clusterKey: `${lat.toFixed(2)}-${lng.toFixed(2)}`,
       };
@@ -99,12 +115,16 @@ function optimizeCandidatePlaces({ pois, travelerMode, interests, freeSlots }) {
       clusterCounts.set(poi.clusterKey, current + 1);
       return true;
     })
-    .slice(0, 10);
+    .slice(0, limit);
 }
 
 function buildReason(poi, travelerMode) {
   if (poi.interestMatches?.length > 0) {
     return `Matches your interest in ${poi.interestMatches.join(", ")} while keeping transit light.`;
+  }
+
+  if (poi.noteMatches?.length > 0) {
+    return `Fits the extra detail you provided around ${poi.noteMatches.join(", ")}.`;
   }
 
   if (travelerMode === "business") {
@@ -214,5 +234,6 @@ function buildDeterministicItinerary({
 module.exports = {
   buildDeterministicItinerary,
   deriveFreeSlots,
+  getNoteMatches,
   optimizeCandidatePlaces,
 };

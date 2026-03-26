@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useAuth } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import { BriefcaseBusiness, FileUp, LoaderCircle, MapPin, Sparkles } from "lucide-react";
 import { usePlanner } from "../context/PlannerContext.jsx";
@@ -17,6 +18,7 @@ function Panel({ title, subtitle, children }) {
 
 export default function BusinessSetupPage() {
   const navigate = useNavigate();
+  const { getToken } = useAuth();
   const { plannerState, mergePlannerState } = usePlanner();
   const [selectedFile, setSelectedFile] = useState(null);
   const [baseLocationQuery, setBaseLocationQuery] = useState(plannerState.location?.label || "");
@@ -52,7 +54,7 @@ export default function BusinessSetupPage() {
       formData.append("interests", interestInput);
       formData.append("notes", notes);
 
-      const extracted = await extractSchedule(formData);
+      const extracted = await extractSchedule(formData, getToken);
       const nextState = {
         mode: "business",
         location: extracted.location,
@@ -67,17 +69,22 @@ export default function BusinessSetupPage() {
       mergePlannerState(nextState);
 
       if (extracted.location) {
-        const poiPreview = await fetchPois({
-          lat: extracted.location.lat,
-          lng: extracted.location.lng,
-          freeMinutes: extracted.freeSlots[0]?.durationMinutes || 120,
-          travelerMode: "business",
-          interests: extracted.preferences.join(","),
-        });
+        const poiPreview = await fetchPois(
+          {
+            lat: extracted.location.lat,
+            lng: extracted.location.lng,
+            freeMinutes: extracted.freeSlots[0]?.durationMinutes || 120,
+            travelerMode: "business",
+            interests: extracted.preferences.join(","),
+          },
+          getToken
+        );
 
         mergePlannerState({
           ...nextState,
           rawPois: poiPreview.pois,
+          poiSource: poiPreview.source,
+          poiRadiusMeters: poiPreview.radiusMeters,
         });
       }
     } catch (requestError) {
@@ -102,22 +109,27 @@ export default function BusinessSetupPage() {
     setIsGenerating(true);
 
     try {
-      const response = await optimizeItinerary({
-        travelerMode: "business",
-        location: plannerState.location,
-        interests: parseInterestString(interestInput),
-        notes,
-        freeSlots: plannerState.freeSlots,
-        rawPois: plannerState.rawPois,
-        schedule: plannerState.schedule,
-        scheduleText: plannerState.scheduleText,
-        documentName: plannerState.documentName,
-      });
+      const response = await optimizeItinerary(
+        {
+          travelerMode: "business",
+          location: plannerState.location,
+          interests: parseInterestString(interestInput),
+          notes,
+          freeSlots: plannerState.freeSlots,
+          rawPois: plannerState.rawPois,
+          schedule: plannerState.schedule,
+          scheduleText: plannerState.scheduleText,
+          documentName: plannerState.documentName,
+        },
+        getToken
+      );
 
       mergePlannerState({
         interests: parseInterestString(interestInput),
         notes,
         itinerary: response.itinerary,
+        ai: response.ai,
+        poiSource: response.poiSource || plannerState.poiSource,
       });
 
       navigate("/itinerary");

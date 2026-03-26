@@ -68,9 +68,18 @@ exports.optimizeItinerary = async (req, res) => {
       }))
       .filter((poi) => Number.isFinite(poi.lat) && Number.isFinite(poi.lng));
 
+    const prerankedPois = optimizeCandidatePlaces({
+      pois: rawPois,
+      travelerMode,
+      interests: preferences,
+      freeSlots,
+      notes,
+      limit: Math.min(rawPois.length, 36),
+    });
+
     const routeReadyPois = await calculateTravelMatrix({
       origin: location,
-      pois: rawPois.slice(0, 24),
+      pois: prerankedPois.slice(0, 24),
       travelerMode,
       availableMinutes: Math.max(...freeSlots.map((slot) => slot.durationMinutes), 0),
     });
@@ -80,6 +89,8 @@ exports.optimizeItinerary = async (req, res) => {
       travelerMode,
       interests: preferences,
       freeSlots,
+      notes,
+      limit: 10,
     });
 
     const baseItinerary = buildDeterministicItinerary({
@@ -130,8 +141,11 @@ exports.optimizeItinerary = async (req, res) => {
         used: Boolean(aiItinerary),
         stage: `${travelerMode}-itinerary-refinement`,
       },
+      poiSource:
+        rawPois.length > 0 ? Array.from(new Set(rawPois.map((poi) => poi.source || "unknown"))).join(", ") : "none",
       itinerary,
       rawPoiCount: rawPois.length,
+      prerankedPoiCount: prerankedPois.length,
       selectedPoiCount: itinerary.mapPoints?.length || 0,
       location,
     });

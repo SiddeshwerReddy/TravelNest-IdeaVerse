@@ -18,6 +18,7 @@ function StatCard({ label, value, caption }) {
 export default function ItineraryDashboardPage() {
   const { plannerState, resetPlannerState } = usePlanner();
   const itinerary = plannerState.itinerary;
+  const ai = plannerState.ai;
 
   if (!itinerary) {
     return (
@@ -110,6 +111,28 @@ export default function ItineraryDashboardPage() {
           />
         </div>
 
+        <div className="grid gap-4 md:grid-cols-3">
+          <StatCard
+            label="Discovery Radius"
+            value={
+              plannerState.poiRadiusMeters
+                ? `${Math.round(plannerState.poiRadiusMeters / 100) / 10} km`
+                : "Auto"
+            }
+            caption="Effective search distance used for the POI pool."
+          />
+          <StatCard
+            label="POI Source"
+            value={plannerState.poiSource || "prefetched"}
+            caption="Whether places came from live Overpass or fallback generation."
+          />
+          <StatCard
+            label="AI Refinement"
+            value={ai?.used ? "Gemini" : ai?.configured ? "Fallback" : "Disabled"}
+            caption="Shows whether the wording/refinement step used Gemini."
+          />
+        </div>
+
         <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
           <div className="space-y-6">
             <div className="rounded-[2rem] border border-white/10 bg-white/[0.05] p-6 shadow-[0_18px_45px_rgba(2,6,23,0.24)]">
@@ -179,7 +202,14 @@ export default function ItineraryDashboardPage() {
                   <div className="mt-3 space-y-2">
                     {itinerary.shortlistedPois.slice(0, 5).map((poi) => (
                       <div key={poi.id} className="flex items-center justify-between gap-3">
-                        <span className="truncate">{poi.name}</span>
+                        <div className="min-w-0">
+                          <p className="truncate">{poi.name}</p>
+                          {poi.interestMatches?.length ? (
+                            <p className="truncate text-xs text-cyan-200">
+                              Matches: {poi.interestMatches.join(", ")}
+                            </p>
+                          ) : null}
+                        </div>
                         <span className="shrink-0 text-slate-400">{poi.categoryLabel}</span>
                       </div>
                     ))}

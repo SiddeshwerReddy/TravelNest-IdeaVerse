@@ -13,8 +13,11 @@ const defaultPlannerState = {
   freeSlots: [],
   rawPois: [],
   itinerary: null,
+  ai: null,
   documentName: "",
   availableMinutes: 180,
+  poiSource: "",
+  poiRadiusMeters: 0,
 };
 
 const PlannerContext = createContext(null);

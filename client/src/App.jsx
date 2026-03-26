@@ -1,8 +1,18 @@
+import {
+  SignedIn,
+  SignedOut,
+  SignInButton,
+  SignUpButton,
+  UserButton,
+} from "@clerk/clerk-react";
 import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
 import { Compass, MoonStar } from "lucide-react";
+import ProtectedRoute from "./components/ProtectedRoute.jsx";
 import LandingPage from "./pages/LandingPage.jsx";
 import ModeSelectionPage from "./pages/ModeSelectionPage.jsx";
 import PlaceholderPage from "./pages/PlaceholderPage.jsx";
+import AuthPage from "./pages/AuthPage.jsx";
+import DashboardPage from "./pages/DashboardPage.jsx";
 
 const navItems = [
   { label: "Home", to: "/" },
@@ -10,9 +20,16 @@ const navItems = [
   { label: "Business Setup", to: "/business-setup" },
   { label: "Leisure Setup", to: "/leisure-setup" },
   { label: "Itinerary", to: "/itinerary" },
+  { label: "Dashboard", to: "/dashboard" },
 ];
 
 function AppShell() {
+  const protectedPlaceholder = (title, description) => (
+    <ProtectedRoute>
+      <PlaceholderPage title={title} description={description} />
+    </ProtectedRoute>
+  );
+
   return (
     <div className="relative min-h-screen overflow-hidden px-4 py-4 text-slate-100 sm:px-6 lg:px-8">
       <div className="mx-auto flex min-h-[calc(100vh-2rem)] w-full max-w-7xl flex-col rounded-[2rem] border border-white/10 bg-slate-950/[0.65] shadow-[0_30px_80px_rgba(15,23,42,0.45)] backdrop-blur-xl">
@@ -48,41 +65,77 @@ function AppShell() {
             ))}
           </nav>
 
-          <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300 lg:flex">
-            <MoonStar className="h-4 w-4 text-fuchsia-300" />
-            Dark Knight Devs aesthetic
+          <div className="flex items-center gap-3 self-start lg:self-auto">
+            <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300 lg:flex">
+              <MoonStar className="h-4 w-4 text-fuchsia-300" />
+              Dark Knight Devs aesthetic
+            </div>
+
+            <SignedOut>
+              <div className="flex items-center gap-2">
+                <SignInButton mode="modal">
+                  <button className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:border-white/25 hover:bg-white/10">
+                    Sign In
+                  </button>
+                </SignInButton>
+                <SignUpButton mode="modal">
+                  <button className="rounded-full bg-cyan-400 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-cyan-300">
+                    Sign Up
+                  </button>
+                </SignUpButton>
+              </div>
+            </SignedOut>
+
+            <SignedIn>
+              <UserButton
+                appearance={{
+                  elements: {
+                    avatarBox:
+                      "h-10 w-10 border border-cyan-300/30 shadow-[0_0_20px_rgba(34,211,238,0.18)]",
+                  },
+                }}
+              />
+            </SignedIn>
           </div>
         </header>
 
         <main className="flex-1">
           <Routes>
             <Route path="/" element={<LandingPage />} />
+            <Route path="/sign-in/*" element={<AuthPage mode="sign-in" />} />
+            <Route path="/sign-up/*" element={<AuthPage mode="sign-up" />} />
             <Route path="/mode" element={<ModeSelectionPage />} />
             <Route
               path="/business-setup"
-              element={
-                <PlaceholderPage
-                  title="Business Traveler Setup"
-                  description="Next, we can add PDF schedule upload, meeting extraction, and a free-time dashboard for business travelers."
-                />
-              }
+              element={protectedPlaceholder(
+                "Business Traveler Setup",
+                "Next, we can add PDF schedule upload, meeting extraction, and a free-time dashboard for business travelers.",
+              )}
             />
             <Route
               path="/leisure-setup"
-              element={
-                <PlaceholderPage
-                  title="Leisure Traveler Setup"
-                  description="Next, we can connect browser geolocation, interest tagging, and nearby discovery preferences for leisure travelers."
-                />
-              }
+              element={protectedPlaceholder(
+                "Leisure Traveler Setup",
+                "Next, we can connect browser geolocation, interest tagging, and nearby discovery preferences for leisure travelers.",
+              )}
             />
             <Route
               path="/itinerary"
               element={
-                <PlaceholderPage
-                  title="Interactive Itinerary Dashboard"
-                  description="Next, we can build the AI timeline, map overlays, route feasibility chips, and itinerary regeneration actions."
-                />
+                <ProtectedRoute>
+                  <PlaceholderPage
+                    title="Interactive Itinerary Dashboard"
+                    description="Next, we can build the AI timeline, map overlays, route feasibility chips, and itinerary regeneration actions."
+                  />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/dashboard"
+              element={
+                <ProtectedRoute>
+                  <DashboardPage />
+                </ProtectedRoute>
               }
             />
           </Routes>

@@ -12,6 +12,9 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@clerk/backend": "^3.2.3",
+    "@clerk/express": "^2.0.7",
+    "@clerk/shared": "^4.3.2",
     "@google/genai": "^1.29.0",
     "axios": "^1.13.6",
     "cors": "^2.8.6",

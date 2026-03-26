@@ -1,4 +1,5 @@
 import { ArrowRight, BrainCircuit, Clock3, MapPinned, Sparkles } from "lucide-react";
+import { SignedIn, SignedOut, SignInButton } from "@clerk/clerk-react";
 import { Link } from "react-router-dom";
 
 const featureCards = [
@@ -52,13 +53,23 @@ export default function LandingPage() {
           </p>
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Link
-              to="/mode"
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-400 px-6 py-3 font-medium text-slate-950 transition hover:bg-cyan-300"
-            >
-              Choose Traveler Mode
-              <ArrowRight className="h-4 w-4" />
-            </Link>
+            <SignedIn>
+              <Link
+                to="/mode"
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-400 px-6 py-3 font-medium text-slate-950 transition hover:bg-cyan-300"
+              >
+                Choose Traveler Mode
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </SignedIn>
+            <SignedOut>
+              <SignInButton mode="modal">
+                <button className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-400 px-6 py-3 font-medium text-slate-950 transition hover:bg-cyan-300">
+                  Sign In to Start
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </SignInButton>
+            </SignedOut>
             <Link
               to="/business-setup"
               className="inline-flex items-center justify-center rounded-full border border-white/15 bg-white/5 px-6 py-3 font-medium text-white transition hover:border-white/25 hover:bg-white/10"

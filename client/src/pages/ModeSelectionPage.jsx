@@ -6,6 +6,7 @@ import {
   Map,
   WandSparkles,
 } from "lucide-react";
+import { SignedIn, SignedOut, SignInButton } from "@clerk/clerk-react";
 import { Link } from "react-router-dom";
 
 const modeCards = [
@@ -89,13 +90,23 @@ export default function ModeSelectionPage() {
                     ))}
                   </div>
 
-                  <Link
-                    to={mode.path}
-                    className="mt-8 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white px-5 py-3 font-medium text-slate-950 transition hover:bg-slate-100"
-                  >
-                    Continue to Setup
-                    <ArrowRight className="h-4 w-4" />
-                  </Link>
+                  <SignedIn>
+                    <Link
+                      to={mode.path}
+                      className="mt-8 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white px-5 py-3 font-medium text-slate-950 transition hover:bg-slate-100"
+                    >
+                      Continue to Setup
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </SignedIn>
+                  <SignedOut>
+                    <SignInButton mode="modal">
+                      <button className="mt-8 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white px-5 py-3 font-medium text-slate-950 transition hover:bg-slate-100">
+                        Sign In to Continue
+                        <ArrowRight className="h-4 w-4" />
+                      </button>
+                    </SignInButton>
+                  </SignedOut>
                 </div>
               </article>
             );

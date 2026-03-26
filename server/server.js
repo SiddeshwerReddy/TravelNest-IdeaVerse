@@ -4,6 +4,10 @@ const { clerkMiddleware } = require("@clerk/express");
 const path = require("path");
 require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 
+if (!process.env.CLERK_PUBLISHABLE_KEY && process.env.VITE_CLERK_PUBLISHABLE_KEY) {
+  process.env.CLERK_PUBLISHABLE_KEY = process.env.VITE_CLERK_PUBLISHABLE_KEY;
+}
+
 const connectDB = require("./config/db");
 
 const app = express();

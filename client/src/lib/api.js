@@ -14,4 +14,18 @@ export async function fetchSessionProfile(getToken) {
   return response.data;
 }
 
+export async function syncAuthenticatedUser(getToken) {
+  const token = await getToken();
+
+  const response = await api.post(
+    "/api/auth/sync",
+    {},
+    {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    },
+  );
+
+  return response.data;
+}
+
 export default api;

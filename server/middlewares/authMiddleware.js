@@ -1,6 +1,8 @@
-const { getAuth } = require("@clerk/express");
+const mongoose = require("mongoose");
+const { clerkClient, getAuth } = require("@clerk/express");
+const { syncClerkUserToDatabase } = require("../services/userService");
 
-function requireUser(req, res, next) {
+async function requireUser(req, res, next) {
   const auth = getAuth(req);
 
   if (!auth.userId) {
@@ -9,8 +11,20 @@ function requireUser(req, res, next) {
     });
   }
 
-  req.auth = auth;
-  return next();
+  try {
+    req.auth = auth;
+    req.clerkUser = await clerkClient.users.getUser(auth.userId);
+
+    if (mongoose.connection.readyState === 1) {
+      req.dbUser = await syncClerkUserToDatabase(req.clerkUser);
+    } else {
+      req.dbUser = null;
+    }
+
+    return next();
+  } catch (error) {
+    return next(error);
+  }
 }
 
 module.exports = {

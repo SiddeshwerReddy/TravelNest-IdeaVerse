@@ -7,6 +7,7 @@ import {
 } from "@clerk/clerk-react";
 import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
 import { Compass, MoonStar } from "lucide-react";
+import AuthSync from "./components/AuthSync.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
 import LandingPage from "./pages/LandingPage.jsx";
 import ModeSelectionPage from "./pages/ModeSelectionPage.jsx";
@@ -148,6 +149,7 @@ function AppShell() {
 export default function App() {
   return (
     <BrowserRouter>
+      <AuthSync />
       <AppShell />
     </BrowserRouter>
   );

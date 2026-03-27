@@ -5,6 +5,21 @@ const {
 } = require("../utils/time");
 const { parseInterestInput } = require("../utils/interests");
 
+function normalizeRefinementOptions(refinementOptions) {
+  const allowed = new Set([
+    "more_food",
+    "less_walking",
+    "more_iconic_places",
+    "quiet_places_only",
+    "budget_friendly",
+    "near_meetings_only",
+  ]);
+
+  return Array.from(
+    new Set((Array.isArray(refinementOptions) ? refinementOptions : []).filter((item) => allowed.has(item)))
+  );
+}
+
 function getInterestCategoryMatches(poi, interests) {
   const categories = `${poi.category || ""} ${poi.categoryLabel || ""} ${poi.name || ""} ${poi.tagSummary || ""}`.toLowerCase();
 
@@ -95,22 +110,46 @@ function computeInterestMatches(poi, interests) {
   return Array.from(new Set([...directMatches, ...categoryMatches]));
 }
 
-function inferPreferenceSignals(notes, interests, travelerMode) {
+function inferPreferenceSignals(notes, interests, travelerMode, refinementOptions = []) {
   const combined = [...parseInterestInput(interests), ...parseInterestInput(notes)].join(" ");
+  const refinements = normalizeRefinementOptions(refinementOptions);
 
   return {
-    wantsQuiet: /quiet|calm|peaceful|focus|low-key|avoid crowds/.test(combined),
-    wantsFood: /food|dining|restaurant|coffee|cafe|brunch|snack/.test(combined),
-    wantsCulture: /museum|heritage|historic|culture|gallery|design|architecture/.test(combined),
+    wantsQuiet: /quiet|calm|peaceful|focus|low-key|avoid crowds/.test(combined) || refinements.includes("quiet_places_only"),
+    wantsFood: /food|dining|restaurant|coffee|cafe|brunch|snack/.test(combined) || refinements.includes("more_food"),
+    wantsCulture:
+      /museum|heritage|historic|culture|gallery|design|architecture|iconic/.test(combined) ||
+      refinements.includes("more_iconic_places"),
     wantsNature: /park|garden|nature|walk|outdoor|sunset|view/.test(combined),
-    wantsShortDetours: travelerMode === "business" || /avoid long detours|close by|nearby|walkable|light transit/.test(combined),
+    wantsShortDetours:
+      travelerMode === "business" ||
+      /avoid long detours|close by|nearby|walkable|light transit/.test(combined) ||
+      refinements.includes("less_walking") ||
+      refinements.includes("near_meetings_only"),
     wantsPhotoFriendly: /photo|photography|view|sunset|scenic/.test(combined),
+    wantsBudget: /budget|cheap|affordable|free/.test(combined) || refinements.includes("budget_friendly"),
+    wantsNearMeetings: travelerMode === "business" && refinements.includes("near_meetings_only"),
+    refinementOptions: refinements,
   };
 }
 
-function optimizeCandidatePlaces({ pois, travelerMode, interests, freeSlots, notes = "", limit = 10 }) {
+function estimateIconicFactor(poi) {
+  const category = `${poi.category || ""} ${poi.categoryLabel || ""} ${poi.tagSummary || ""}`.toLowerCase();
+  return /museum|historic|monument|fort|gallery|viewpoint/.test(category) ? 1 : 0;
+}
+
+function optimizeCandidatePlaces({
+  pois,
+  travelerMode,
+  interests,
+  freeSlots,
+  notes = "",
+  refinementOptions = [],
+  weatherContext = null,
+  limit = 10,
+}) {
   const interestTerms = parseInterestInput(interests);
-  const preferenceSignals = inferPreferenceSignals(notes, interests, travelerMode);
+  const preferenceSignals = inferPreferenceSignals(notes, interests, travelerMode, refinementOptions);
   const maxUsefulMinutes = Math.max(...freeSlots.map((slot) => slot.durationMinutes), 90);
   const clusterCounts = new Map();
 
@@ -130,15 +169,42 @@ function optimizeCandidatePlaces({ pois, travelerMode, interests, freeSlots, not
           : travelerMode === "leisure" && (poi.category === "park" || poi.category === "viewpoint")
             ? 0.7
             : 0;
+      const category = poi.category || "";
+      const refinementBonus =
+        (preferenceSignals.refinementOptions.includes("more_food") && /cafe|restaurant/.test(category) ? 1.8 : 0) +
+        (preferenceSignals.refinementOptions.includes("less_walking") && (poi.travelMinutes || 0) <= 12 ? 1.6 : 0) +
+        (preferenceSignals.refinementOptions.includes("more_iconic_places") && estimateIconicFactor(poi) ? 1.9 : 0) +
+        (preferenceSignals.refinementOptions.includes("quiet_places_only") && /park|museum|gallery|cafe/.test(category) ? 1.4 : -0.4) +
+        (preferenceSignals.refinementOptions.includes("budget_friendly") && /park|viewpoint|historic/.test(category) ? 1.2 : 0) +
+        (preferenceSignals.refinementOptions.includes("near_meetings_only") && (poi.travelMinutes || 0) <= 10 ? 1.8 : -1.1);
+      const weatherBonus =
+        weatherContext?.isRainy
+          ? /museum|gallery|cafe|restaurant/.test(category)
+            ? 1.5
+            : /park|viewpoint/.test(category)
+              ? -1.4
+              : 0
+          : weatherContext?.isHot
+            ? /museum|gallery|cafe|restaurant/.test(category)
+              ? 1.1
+              : /park|viewpoint/.test(category)
+                ? -0.8
+                : 0
+            : weatherContext?.nearSunset
+              ? /viewpoint|park|historic/.test(category)
+                ? 0.9
+                : 0
+              : 0;
       const preferenceBonus =
-        (preferenceSignals.wantsQuiet && /park|garden|cafe|museum/.test(poi.category) ? 0.8 : 0) +
-        (preferenceSignals.wantsCulture && /museum|gallery|historic/.test(poi.category) ? 1.1 : 0) +
-        (preferenceSignals.wantsNature && /park|viewpoint/.test(poi.category) ? 0.9 : 0) +
-        (preferenceSignals.wantsFood && /cafe|restaurant/.test(poi.category) ? 0.8 : 0);
+        (preferenceSignals.wantsQuiet && /park|garden|cafe|museum/.test(category) ? 0.8 : 0) +
+        (preferenceSignals.wantsCulture && /museum|gallery|historic/.test(category) ? 1.1 : 0) +
+        (preferenceSignals.wantsNature && /park|viewpoint/.test(category) ? 0.9 : 0) +
+        (preferenceSignals.wantsFood && /cafe|restaurant/.test(category) ? 0.8 : 0) +
+        (preferenceSignals.wantsBudget && /park|viewpoint|historic/.test(category) ? 0.6 : 0);
       const interestScore = interestMatches.length * 4.4;
       const noteScore = noteMatches.length * 2.4;
       const premiumInterestBonus =
-        interestMatches.length > 0 && /museum|historic|gallery|park|viewpoint|restaurant|cafe/.test(poi.category)
+        interestMatches.length > 0 && /museum|historic|gallery|park|viewpoint|restaurant|cafe/.test(category)
           ? 1
           : 0;
 
@@ -150,6 +216,8 @@ function optimizeCandidatePlaces({ pois, travelerMode, interests, freeSlots, not
         fitScore +
         modeBonus +
         preferenceBonus +
+        refinementBonus +
+        weatherBonus +
         premiumInterestBonus;
 
       return {
@@ -176,8 +244,8 @@ function optimizeCandidatePlaces({ pois, travelerMode, interests, freeSlots, not
     .slice(0, limit);
 }
 
-function describeTravelerProfile({ travelerMode, interests, notes, freeSlots }) {
-  const preferenceSignals = inferPreferenceSignals(notes, interests, travelerMode);
+function describeTravelerProfile({ travelerMode, interests, notes, freeSlots, refinementOptions }) {
+  const preferenceSignals = inferPreferenceSignals(notes, interests, travelerMode, refinementOptions);
   const normalizedInterests = parseInterestInput(interests);
   const summaryParts = [];
 
@@ -210,10 +278,11 @@ function describeTravelerProfile({ travelerMode, interests, notes, freeSlots }) 
     summary: `This pass is tuned for a ${summaryParts.join(", ")} traveler with ${Math.round(totalFreeMinutes / 30) * 30} flexible minutes available.`,
     strongestInterest,
     preferenceSignals,
+    refinementOptions: normalizeRefinementOptions(refinementOptions),
   };
 }
 
-function scorePoiForSlot({ poi, slot, travelerMode, profile }) {
+function scorePoiForSlot({ poi, slot, travelerMode, profile, weatherContext }) {
   const slotMinutes = slot.durationMinutes;
   const travelMinutes = poi.travelMinutes || 12;
   const stayMinutes = poi.visitDurationMinutes || 45;
@@ -262,6 +331,22 @@ function scorePoiForSlot({ poi, slot, travelerMode, profile }) {
     score += 0.8;
   }
 
+  if (profile.preferenceSignals.wantsBudget && /park|viewpoint|historic/.test(category)) {
+    score += 0.6;
+  }
+
+  if (profile.preferenceSignals.refinementOptions.includes("less_walking")) {
+    score += travelMinutes <= 10 ? 1.1 : -0.5;
+  }
+
+  if (profile.preferenceSignals.refinementOptions.includes("near_meetings_only")) {
+    score += travelMinutes <= 8 ? 1.4 : -1.2;
+  }
+
+  if (weatherContext?.isRainy && /park|viewpoint/.test(category)) {
+    score -= 1.3;
+  }
+
   return Number(score.toFixed(2));
 }
 
@@ -281,7 +366,31 @@ function buildScheduleFit(slot) {
   return "Fits the available window without forcing a long detour.";
 }
 
-function buildReasonDetails({ poi, travelerMode, slot, profile }) {
+function buildWeatherFit(weatherContext, poi) {
+  if (!weatherContext) {
+    return "Weather conditions were neutral, so category balance stayed flexible.";
+  }
+
+  if (weatherContext.isRainy) {
+    return /museum|gallery|cafe|restaurant/.test(poi.category || "")
+      ? "Current rain risk makes indoor comfort more valuable."
+      : "Outdoor exposure was tolerated only because this stop still scored strongly overall.";
+  }
+
+  if (weatherContext.isHot) {
+    return /museum|gallery|cafe|restaurant/.test(poi.category || "")
+      ? "Warm conditions favor indoor or shaded breaks."
+      : "Outdoor time was kept lighter because of the heat.";
+  }
+
+  if (weatherContext.nearSunset && /viewpoint|park|historic/.test(poi.category || "")) {
+    return "Current conditions make scenic outdoor timing more attractive.";
+  }
+
+  return "Weather was considered, but it did not strongly constrain this stop.";
+}
+
+function buildReasonDetails({ poi, travelerMode, slot, profile, weatherContext }) {
   const reasons = [];
 
   if (poi.interestMatches?.length) {
@@ -304,6 +413,14 @@ function buildReasonDetails({ poi, travelerMode, slot, profile }) {
     reasons.push("supports a calmer pace");
   }
 
+  if (profile.preferenceSignals.refinementOptions.includes("more_food") && /cafe|restaurant/.test(poi.category || "")) {
+    reasons.push("leans into your food-focused refinement");
+  }
+
+  if (weatherContext?.isRainy && /museum|gallery|cafe|restaurant/.test(poi.category || "")) {
+    reasons.push("works better in rainy conditions");
+  }
+
   if (!reasons.length) {
     reasons.push(
       travelerMode === "business"
@@ -315,8 +432,8 @@ function buildReasonDetails({ poi, travelerMode, slot, profile }) {
   return reasons.slice(0, 3);
 }
 
-function buildReason({ poi, travelerMode, slot, profile }) {
-  const reasonDetails = buildReasonDetails({ poi, travelerMode, slot, profile });
+function buildReason({ poi, travelerMode, slot, profile, weatherContext }) {
+  const reasonDetails = buildReasonDetails({ poi, travelerMode, slot, profile, weatherContext });
 
   return `${poi.name} was chosen because it ${reasonDetails.join(", ")}.`;
 }
@@ -326,7 +443,7 @@ function buildHighlight(poi, slot) {
   return `${context} • ${poi.categoryLabel} • ${(poi.travelMinutes || 0)} min away`;
 }
 
-function pickBestPoiForSlot({ remainingPois, slot, travelerMode, profile }) {
+function pickBestPoiForSlot({ remainingPois, slot, travelerMode, profile, weatherContext }) {
   const ranked = remainingPois
     .filter((poi) => {
       const travelMinutes = Math.min(poi.travelMinutes || 12, Math.max(6, Math.floor(slot.durationMinutes / 3)));
@@ -334,7 +451,7 @@ function pickBestPoiForSlot({ remainingPois, slot, travelerMode, profile }) {
     })
     .map((poi) => ({
       poi,
-      slotScore: scorePoiForSlot({ poi, slot, travelerMode, profile }),
+      slotScore: scorePoiForSlot({ poi, slot, travelerMode, profile, weatherContext }),
     }))
     .sort((left, right) => right.slotScore - left.slotScore);
 
@@ -349,10 +466,12 @@ function buildDeterministicItinerary({
   freeSlots,
   shortlistedPois,
   rawPoiCount,
+  refinementOptions = [],
+  weatherContext = null,
 }) {
   const remainingPois = [...shortlistedPois];
   const timeline = [];
-  const profile = describeTravelerProfile({ travelerMode, interests, notes, freeSlots });
+  const profile = describeTravelerProfile({ travelerMode, interests, notes, freeSlots, refinementOptions });
 
   freeSlots.forEach((slot) => {
     let remaining = slot.durationMinutes;
@@ -366,6 +485,7 @@ function buildDeterministicItinerary({
         slot,
         travelerMode,
         profile,
+        weatherContext,
       });
 
       if (!selected) {
@@ -388,7 +508,7 @@ function buildDeterministicItinerary({
 
       const startMinutes = cursor + travelMinutes;
       const endMinutes = startMinutes + stayMinutes;
-      const reasoningPoints = buildReasonDetails({ poi, travelerMode, slot, profile });
+      const reasoningPoints = buildReasonDetails({ poi, travelerMode, slot, profile, weatherContext });
 
       timeline.push({
         id: `${slot.id}-${poi.id}`,
@@ -402,15 +522,16 @@ function buildDeterministicItinerary({
         travelMinutes,
         distanceMeters: poi.distanceMeters || null,
         score: selected.slotScore,
-        reason: buildReason({ poi, travelerMode, slot, profile }),
+        reason: buildReason({ poi, travelerMode, slot, profile, weatherContext }),
         highlight: buildHighlight(poi, slot),
         explanation: {
           whyChosen: reasoningPoints,
           personalization:
             poi.interestMatches?.length || poi.noteMatches?.length
-              ? "Directly tied to your interests and notes."
+              ? "Directly tied to your interests, notes, or active refinement chips."
               : "Chosen mainly for fit, local character, and route efficiency.",
           scheduleFit: buildScheduleFit(slot),
+          weatherFit: buildWeatherFit(weatherContext, poi),
           tradeoff:
             travelMinutes > 15
               ? "Slightly longer transit was accepted because the stop scores well for relevance."
@@ -456,7 +577,7 @@ function buildDeterministicItinerary({
         : "A more personal city plan built around your current context",
     overview:
       timeline.length > 0
-        ? `This itinerary balances relevance, cultural payoff, and travel time across ${freeSlots.length} open window${freeSlots.length > 1 ? "s" : ""}, with each stop chosen for explicit fit rather than generic proximity alone.`
+        ? `This itinerary balances relevance, cultural payoff, travel time, and live conditions across ${freeSlots.length} open window${freeSlots.length > 1 ? "s" : ""}.`
         : "No strong nearby candidates fit the current timing, so the planner is holding a lightweight shortlist you can refine manually.",
     travelerMode,
     location,
@@ -467,11 +588,16 @@ function buildDeterministicItinerary({
     mapPoints,
     shortlistedPois,
     travelerProfile: profile,
+    refinementOptions: normalizeRefinementOptions(refinementOptions),
+    weatherContext,
     decisionSummary: {
-      primaryLens: travelerMode === "business" ? "meeting buffers, short detours, and reset-friendly stops" : "interest alignment, local character, and route efficiency",
+      primaryLens:
+        travelerMode === "business"
+          ? "meeting buffers, short detours, weather comfort, and reset-friendly stops"
+          : "interest alignment, local character, weather fit, and route efficiency",
       selectionConfidence: timeline.length >= 2 ? "high" : timeline.length === 1 ? "medium" : "low",
       explanation: timeline.length
-        ? "Stops were selected by combining interest relevance, note matches, travel feasibility, and slot-specific fit."
+        ? "Stops were selected by combining interest relevance, refinement chips, weather context, travel feasibility, and slot-specific fit."
         : "No stop cleared the current fit threshold with enough spare time left for a confident recommendation.",
     },
     stats: {
@@ -486,8 +612,8 @@ function buildDeterministicItinerary({
       travelerMode === "business"
         ? "Keep the first between-meeting stop if your schedule starts slipping."
         : "Start with the highest-confidence stop if your time shrinks unexpectedly.",
-      "Use the reasoning panel to see whether a stop was chosen for interest fit, timing fit, or both.",
-      "If you regenerate, changing notes often shifts the route more than changing the headline interests.",
+      weatherContext?.summary || "Weather conditions were neutral in this planning pass.",
+      "Use the refinement chips to quickly push the next pass toward food, walking comfort, or iconic places.",
     ],
   };
 }
@@ -496,5 +622,6 @@ module.exports = {
   buildDeterministicItinerary,
   deriveFreeSlots,
   getNoteMatches,
+  normalizeRefinementOptions,
   optimizeCandidatePlaces,
 };

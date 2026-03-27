@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import { Compass, LoaderCircle, MapPinned, Sparkles } from "lucide-react";
+import RefinementChips from "../components/RefinementChips.jsx";
 import { usePlanner } from "../context/PlannerContext.jsx";
 import { fetchPois, geocodePlace, optimizeItinerary } from "../lib/api.js";
 import { formatCoordinates, formatMinutes, parseInterestString } from "../lib/formatters.js";
@@ -42,6 +43,7 @@ export default function LeisureSetupPage() {
   const [availableMinutes, setAvailableMinutes] = useState(180);
   const [areaLabel, setAreaLabel] = useState("");
   const [notes, setNotes] = useState("");
+  const [refinementOptions, setRefinementOptions] = useState([]);
   const [locationDraft, setLocationDraft] = useState({
     lat: "",
     lng: "",
@@ -58,12 +60,14 @@ export default function LeisureSetupPage() {
       location: null,
       interests: [],
       notes: "",
+      refinementOptions: [],
       scheduleText: "",
       schedule: null,
       freeSlots: [],
       rawPois: [],
       itinerary: null,
       ai: null,
+      weatherContext: null,
       tripId: "",
       documentName: "",
       availableMinutes: 180,
@@ -74,6 +78,7 @@ export default function LeisureSetupPage() {
     setAvailableMinutes(180);
     setAreaLabel("");
     setNotes("");
+    setRefinementOptions([]);
     setLocationDraft({
       lat: "",
       lng: "",
@@ -201,6 +206,7 @@ export default function LeisureSetupPage() {
         location: resolvedLocation,
         interests: parseInterestString(interestInput),
         notes,
+        refinementOptions,
         availableMinutes,
         rawPois: response.pois,
         poiSource: response.source,
@@ -233,6 +239,7 @@ export default function LeisureSetupPage() {
           location: resolvedLocation,
           interests: parseInterestString(interestInput),
           notes,
+          refinementOptions,
           availableMinutes,
           rawPois: shouldReusePreviewPois ? plannerState.rawPois : [],
         },
@@ -244,10 +251,12 @@ export default function LeisureSetupPage() {
         location: resolvedLocation,
         interests: parseInterestString(interestInput),
         notes,
+        refinementOptions,
         availableMinutes,
         rawPois: shouldReusePreviewPois ? plannerState.rawPois : [],
         itinerary: response.itinerary,
         ai: response.ai,
+        weatherContext: response.weatherContext || null,
         tripId: response.tripId || "",
         poiSource: response.poiSource || plannerState.poiSource,
       });
@@ -362,6 +371,20 @@ export default function LeisureSetupPage() {
                 placeholder="Want calm streets, shaded walks, local markets, or a photography-friendly route..."
                 className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-300/40"
               />
+            </label>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-medium text-slate-200">
+                One-click refinement
+              </span>
+              <RefinementChips
+                value={refinementOptions}
+                onChange={setRefinementOptions}
+                travelerMode="leisure"
+              />
+              <p className="mt-2 text-sm text-slate-400">
+                Tap a few preferences to quickly push the next itinerary toward a different style.
+              </p>
             </label>
 
             {error ? (

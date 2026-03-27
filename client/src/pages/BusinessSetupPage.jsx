@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import { BriefcaseBusiness, FileUp, LoaderCircle, MapPin, Sparkles } from "lucide-react";
+import RefinementChips from "../components/RefinementChips.jsx";
 import { usePlanner } from "../context/PlannerContext.jsx";
 import { extractSchedule, fetchPois, optimizeItinerary } from "../lib/api.js";
 import { formatCoordinates, formatMinutes, parseInterestString } from "../lib/formatters.js";
@@ -25,6 +26,7 @@ export default function BusinessSetupPage() {
   const [baseLocationQuery, setBaseLocationQuery] = useState("");
   const [interestInput, setInterestInput] = useState("");
   const [notes, setNotes] = useState("");
+  const [refinementOptions, setRefinementOptions] = useState([]);
   const [error, setError] = useState("");
   const [isExtracting, setIsExtracting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -35,12 +37,14 @@ export default function BusinessSetupPage() {
       location: null,
       interests: [],
       notes: "",
+      refinementOptions: [],
       scheduleText: "",
       schedule: null,
       freeSlots: [],
       rawPois: [],
       itinerary: null,
       ai: null,
+      weatherContext: null,
       tripId: "",
       documentName: "",
       poiSource: "",
@@ -51,6 +55,7 @@ export default function BusinessSetupPage() {
     setBaseLocationQuery("");
     setInterestInput("");
     setNotes("");
+    setRefinementOptions([]);
     setError("");
   }, [mergePlannerState]);
 
@@ -92,6 +97,7 @@ export default function BusinessSetupPage() {
         location: extracted.location,
         interests: extracted.preferences,
         notes: extracted.notes,
+        refinementOptions,
         scheduleText: extracted.scheduleText,
         schedule: extracted.schedule,
         freeSlots: extracted.freeSlots,
@@ -147,6 +153,7 @@ export default function BusinessSetupPage() {
           location: plannerState.location,
           interests: parseInterestString(interestInput),
           notes,
+          refinementOptions,
           freeSlots: plannerState.freeSlots,
           rawPois: plannerState.rawPois,
           schedule: plannerState.schedule,
@@ -159,8 +166,10 @@ export default function BusinessSetupPage() {
       mergePlannerState({
         interests: parseInterestString(interestInput),
         notes,
+        refinementOptions,
         itinerary: response.itinerary,
         ai: response.ai,
+        weatherContext: response.weatherContext || null,
         tripId: response.tripId || "",
         poiSource: response.poiSource || plannerState.poiSource,
       });
@@ -251,6 +260,20 @@ export default function BusinessSetupPage() {
                 placeholder="Prefer quiet cafes between meetings, avoid long detours, interested in design museums..."
                 className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-300/40"
               />
+            </label>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-medium text-slate-200">
+                One-click refinement
+              </span>
+              <RefinementChips
+                value={refinementOptions}
+                onChange={setRefinementOptions}
+                travelerMode="business"
+              />
+              <p className="mt-2 text-sm text-slate-400">
+                Use these to bias the next pass toward food, shorter detours, quieter stops, or near-meeting picks.
+              </p>
             </label>
 
             {error ? (

@@ -5,9 +5,11 @@ const { calculateTravelMatrix } = require("../services/routingService");
 const {
   buildDeterministicItinerary,
   deriveFreeSlots,
+  normalizeRefinementOptions,
   optimizeCandidatePlaces,
 } = require("../services/itineraryService");
 const { generateStructuredItinerary, hasGeminiConfig } = require("../services/geminiService");
+const { fetchWeatherContext } = require("../services/weatherService");
 const { parseInterestInput } = require("../utils/interests");
 
 function toRadians(value) {
@@ -85,6 +87,7 @@ exports.optimizeItinerary = async (req, res) => {
       : null;
     const notes = req.body.notes?.trim() || "";
     const preferences = parseInterestInput(req.body.interests);
+    const refinementOptions = normalizeRefinementOptions(req.body.refinementOptions);
     const freeSlots = deriveFreeSlots({
       travelerMode,
       freeSlots: req.body.freeSlots,
@@ -97,6 +100,11 @@ exports.optimizeItinerary = async (req, res) => {
         error: "location with numeric lat and lng is required.",
       });
     }
+
+    const weatherContext = await fetchWeatherContext({
+      lat: location.lat,
+      lng: location.lng,
+    });
 
     let rawPois = Array.isArray(req.body.rawPois) && req.body.rawPois.length > 0 ? req.body.rawPois : [];
 
@@ -145,6 +153,8 @@ exports.optimizeItinerary = async (req, res) => {
       interests: preferences,
       freeSlots,
       notes,
+      refinementOptions,
+      weatherContext,
       limit: Math.min(rawPois.length, 36),
     });
 
@@ -161,6 +171,8 @@ exports.optimizeItinerary = async (req, res) => {
       interests: preferences,
       freeSlots,
       notes,
+      refinementOptions,
+      weatherContext,
       limit: 10,
     });
 
@@ -172,6 +184,8 @@ exports.optimizeItinerary = async (req, res) => {
       freeSlots,
       shortlistedPois,
       rawPoiCount: rawPois.length,
+      refinementOptions,
+      weatherContext,
     });
 
     const aiItinerary = await generateStructuredItinerary({
@@ -204,6 +218,7 @@ exports.optimizeItinerary = async (req, res) => {
         location,
         preferences,
         notes,
+        refinementOptions,
         scheduleText: req.body.scheduleText || "",
         scheduleData: req.body.schedule || null,
         freeSlots,
@@ -230,6 +245,7 @@ exports.optimizeItinerary = async (req, res) => {
       poiSource:
         rawPois.length > 0 ? Array.from(new Set(rawPois.map((poi) => poi.source || "unknown"))).join(", ") : "none",
       itinerary,
+      weatherContext,
       rawPoiCount: rawPois.length,
       prerankedPoiCount: prerankedPois.length,
       selectedPoiCount: itinerary.mapPoints?.length || 0,

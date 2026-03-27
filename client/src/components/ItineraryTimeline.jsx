@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { Clock3, MapPin, Route } from "lucide-react";
-import { formatMinutes } from "../lib/formatters.js";
+import { formatCurrency, formatMinutes } from "../lib/formatters.js";
 
 const MotionArticle = motion.article;
 
@@ -97,6 +97,12 @@ export default function ItineraryTimeline({ timeline = [] }) {
                   <MapPin className="h-4 w-4 text-emerald-300" />
                   {item.highlight}
                 </div>
+                {item.costEstimate ? (
+                  <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/[0.2] px-3 py-2">
+                    <span className="text-amber-300">$</span>
+                    {formatCurrency(item.costEstimate.amount, item.costEstimate.currency)}
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>

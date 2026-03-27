@@ -29,3 +29,32 @@ export function formatCoordinates(location) {
 
   return `${Number(location.lat).toFixed(4)}, ${Number(location.lng).toFixed(4)}`;
 }
+
+export function formatCurrency(amount, currency = "USD") {
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  }).format(Number(amount || 0));
+}
+
+export function formatTransportMode(value) {
+  const labels = {
+    auto: "Auto",
+    walking: "Walking",
+    cycling: "Cycling",
+    driving: "Driving",
+  };
+
+  return labels[value] || "Auto";
+}
+
+export function formatExpenseMode(value) {
+  const labels = {
+    budget: "Budget",
+    balanced: "Balanced",
+    premium: "Premium",
+  };
+
+  return labels[value] || "Balanced";
+}

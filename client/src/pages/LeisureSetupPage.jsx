@@ -8,6 +8,17 @@ import { fetchPois, geocodePlace, optimizeItinerary } from "../lib/api.js";
 import { formatCoordinates, formatMinutes, parseInterestString } from "../lib/formatters.js";
 
 const TIME_PRESETS = [90, 120, 180, 240, 360];
+const TRANSPORT_OPTIONS = [
+  { value: "auto", label: "Auto" },
+  { value: "walking", label: "Walking" },
+  { value: "cycling", label: "Cycling" },
+  { value: "driving", label: "Driving" },
+];
+const EXPENSE_OPTIONS = [
+  { value: "budget", label: "Budget" },
+  { value: "balanced", label: "Balanced" },
+  { value: "premium", label: "Premium" },
+];
 
 function Panel({ title, subtitle, children }) {
   return (
@@ -43,6 +54,8 @@ export default function LeisureSetupPage() {
   const { plannerState, mergePlannerState } = usePlanner();
   const [interestInput, setInterestInput] = useState("");
   const [availableMinutes, setAvailableMinutes] = useState(180);
+  const [transportMode, setTransportMode] = useState("auto");
+  const [expenseMode, setExpenseMode] = useState("balanced");
   const [areaLabel, setAreaLabel] = useState("");
   const [notes, setNotes] = useState("");
   const [refinementOptions, setRefinementOptions] = useState([]);
@@ -73,11 +86,15 @@ export default function LeisureSetupPage() {
       tripId: "",
       documentName: "",
       availableMinutes: 180,
+      transportMode: "auto",
+      expenseMode: "balanced",
       poiSource: "",
       poiRadiusMeters: 0,
     });
     setInterestInput("");
     setAvailableMinutes(180);
+    setTransportMode("auto");
+    setExpenseMode("balanced");
     setAreaLabel("");
     setNotes("");
     setRefinementOptions([]);
@@ -220,6 +237,8 @@ export default function LeisureSetupPage() {
         notes,
         refinementOptions,
         availableMinutes,
+        transportMode,
+        expenseMode,
         rawPois: response.pois,
         poiSource: response.source,
         poiRadiusMeters: response.radiusMeters,
@@ -253,6 +272,8 @@ export default function LeisureSetupPage() {
           notes,
           refinementOptions,
           availableMinutes,
+          transportMode,
+          expenseMode,
           rawPois: shouldReusePreviewPois ? plannerState.rawPois : [],
         },
         getToken
@@ -265,6 +286,8 @@ export default function LeisureSetupPage() {
         notes,
         refinementOptions,
         availableMinutes,
+        transportMode,
+        expenseMode,
         rawPois: shouldReusePreviewPois ? plannerState.rawPois : [],
         itinerary: response.itinerary,
         ai: response.ai,
@@ -333,6 +356,39 @@ export default function LeisureSetupPage() {
                   }
                   className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-300/40"
                 />
+              </label>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-slate-200">
+                  Transportation mode
+                </span>
+                <select
+                  value={transportMode}
+                  onChange={(event) => setTransportMode(event.target.value)}
+                  className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-300/40"
+                >
+                  {TRANSPORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-slate-200">Expense mode</span>
+                <select
+                  value={expenseMode}
+                  onChange={(event) => setExpenseMode(event.target.value)}
+                  className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-300/40"
+                >
+                  {EXPENSE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
 
@@ -461,6 +517,14 @@ export default function LeisureSetupPage() {
               <div className="rounded-2xl border border-white/10 bg-black/[0.18] p-4">
                 <p className="text-sm text-slate-400">Time budget</p>
                 <p className="mt-2 font-semibold text-white">{formatMinutes(availableMinutes)}</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-black/[0.18] p-4">
+                <p className="text-sm text-slate-400">Transport</p>
+                <p className="mt-2 font-semibold text-white">{transportMode}</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-black/[0.18] p-4">
+                <p className="text-sm text-slate-400">Expense mode</p>
+                <p className="mt-2 font-semibold text-white">{expenseMode}</p>
               </div>
             </div>
           </Panel>

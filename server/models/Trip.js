@@ -36,6 +36,16 @@ const TripSchema = new mongoose.Schema(
     itinerary: mongoose.Schema.Types.Mixed,
     sourceDocumentName: String,
     travelerProfile: mongoose.Schema.Types.Mixed,
+    transportMode: {
+      type: String,
+      enum: ["auto", "walking", "cycling", "driving"],
+      default: "auto",
+    },
+    expenseMode: {
+      type: String,
+      enum: ["budget", "balanced", "premium"],
+      default: "balanced",
+    },
   },
   {
     timestamps: true,

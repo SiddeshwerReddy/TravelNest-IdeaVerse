@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ArrowRight,
@@ -19,6 +19,7 @@ import {
   PanelTopOpen,
   Radar,
   RefreshCw,
+  Share2,
   Sparkles,
   SunMedium,
 } from "lucide-react";
@@ -27,7 +28,13 @@ import ItineraryMap from "../components/ItineraryMap.jsx";
 import RefinementChips from "../components/RefinementChips.jsx";
 import ItineraryTimeline from "../components/ItineraryTimeline.jsx";
 import { fetchTripById, fetchTripHistory, optimizeItinerary } from "../lib/api.js";
-import { formatCoordinates, formatMinutes } from "../lib/formatters.js";
+import {
+  formatCoordinates,
+  formatCurrency,
+  formatExpenseMode,
+  formatMinutes,
+  formatTransportMode,
+} from "../lib/formatters.js";
 
 const MotionDiv = motion.div;
 const MotionSection = motion.section;
@@ -110,8 +117,11 @@ function buildExportText({ itinerary, location, storageStatus }) {
     `Headline: ${itinerary.headline}`,
     `Mode: ${itinerary.travelerMode}`,
     `Location: ${location?.label || "Unknown area"}`,
+    `Transport: ${formatTransportMode(itinerary.transportMode)}`,
+    `Expense mode: ${formatExpenseMode(itinerary.expenseMode)}`,
     `Overview: ${itinerary.overview}`,
     `Storage: ${storageStatus || "local"}`,
+    `Estimated cost: ${formatCurrency(itinerary.stats?.totalEstimatedCost || 0)}`,
     ``,
     `Timeline`,
     ...timelineLines,
@@ -123,6 +133,7 @@ function buildExportText({ itinerary, location, storageStatus }) {
 
 export default function ItineraryDashboardPage() {
   const { getToken } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { plannerState, mergePlannerState, resetPlannerState } = usePlanner();
   const itinerary = plannerState.itinerary;
   const ai = plannerState.ai;
@@ -180,7 +191,7 @@ export default function ItineraryDashboardPage() {
     };
   }, [loadHistory]);
 
-  async function handleLoadTrip(tripId) {
+  const handleLoadTrip = useCallback(async (tripId) => {
     try {
       setLoadingTripId(tripId);
       const response = await fetchTripById(tripId, getToken);
@@ -198,14 +209,27 @@ export default function ItineraryDashboardPage() {
         rawPois: trip.rawPois || [],
         itinerary: trip.itinerary || null,
         weatherContext: trip.itinerary?.weatherContext || null,
+        transportMode: trip.transportMode || trip.itinerary?.transportMode || "auto",
+        expenseMode: trip.expenseMode || trip.itinerary?.expenseMode || "balanced",
         tripId: trip.id,
       });
+      setSearchParams({ trip: trip.id });
     } catch (requestError) {
       setHistoryError(requestError.response?.data?.error || "Unable to load that trip.");
     } finally {
       setLoadingTripId("");
     }
-  }
+  }, [getToken, mergePlannerState, setSearchParams]);
+
+  useEffect(() => {
+    const sharedTripId = searchParams.get("trip");
+
+    if (!sharedTripId || sharedTripId === plannerState.tripId || loadingTripId) {
+      return;
+    }
+
+    handleLoadTrip(sharedTripId);
+  }, [handleLoadTrip, loadingTripId, plannerState.tripId, searchParams]);
 
   async function handleRegenerate() {
     if (!itinerary || !plannerState.location) {
@@ -225,6 +249,8 @@ export default function ItineraryDashboardPage() {
           notes: plannerState.notes,
           refinementOptions,
           availableMinutes: plannerState.availableMinutes,
+          transportMode: plannerState.transportMode,
+          expenseMode: plannerState.expenseMode,
           freeSlots: plannerState.freeSlots,
           rawPois: plannerState.rawPois,
           schedule: plannerState.schedule,
@@ -241,7 +267,13 @@ export default function ItineraryDashboardPage() {
         weatherContext: response.weatherContext || null,
         tripId: response.tripId || plannerState.tripId,
         poiSource: response.poiSource || plannerState.poiSource,
+        transportMode: response.transportMode || plannerState.transportMode,
+        expenseMode: response.expenseMode || plannerState.expenseMode,
       });
+
+      if (response.tripId || plannerState.tripId) {
+        setSearchParams({ trip: response.tripId || plannerState.tripId });
+      }
 
       await loadHistory();
       setHistoryStatus("success");
@@ -273,6 +305,24 @@ export default function ItineraryDashboardPage() {
       setActionMessage("Itinerary summary copied to clipboard.");
     } catch {
       setActionMessage("Clipboard copy is not available in this browser.");
+    }
+  }
+
+  async function handleCopyShareLink() {
+    const tripId = plannerState.tripId || searchParams.get("trip");
+
+    if (!tripId) {
+      setActionMessage("Generate and save this itinerary first to create a share link.");
+      return;
+    }
+
+    const shareUrl = `${window.location.origin}/itinerary?trip=${tripId}`;
+
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setActionMessage("Share link copied to clipboard.");
+    } catch {
+      setActionMessage("Unable to copy the share link in this browser.");
     }
   }
 
@@ -407,7 +457,15 @@ export default function ItineraryDashboardPage() {
                   className="inline-flex items-center justify-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-5 py-3 font-medium text-white transition duration-300 hover:-translate-y-0.5 hover:border-white/25 hover:bg-white/[0.1]"
                 >
                   <Download className="h-4 w-4" />
-                  Download
+                  Offline Export
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyShareLink}
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-5 py-3 font-medium text-white transition duration-300 hover:-translate-y-0.5 hover:border-white/25 hover:bg-white/[0.1]"
+                >
+                  <Share2 className="h-4 w-4" />
+                  Share Link
                 </button>
               </div>
 
@@ -462,6 +520,20 @@ export default function ItineraryDashboardPage() {
                   }
                   meta={itinerary.weatherContext?.summary || "Weather data unavailable"}
                   tone="border-amber-300/20 bg-amber-400/10 text-amber-100"
+                />
+                <MetricStrip
+                  icon={MapPinned}
+                  label="Transport"
+                  value={formatTransportMode(itinerary.transportMode)}
+                  meta="Travel profile used for route calculations."
+                  tone="border-cyan-300/20 bg-cyan-400/10 text-cyan-100"
+                />
+                <MetricStrip
+                  icon={BrainCircuit}
+                  label="Expense Mode"
+                  value={formatExpenseMode(itinerary.expenseMode)}
+                  meta={`${formatCurrency(itinerary.stats?.totalEstimatedCost || 0)} estimated total`}
+                  tone="border-fuchsia-300/20 bg-fuchsia-400/10 text-fuchsia-100"
                 />
               </div>
             </MotionDiv>

@@ -7,6 +7,18 @@ import { usePlanner } from "../context/PlannerContext.jsx";
 import { extractSchedule, fetchPois, optimizeItinerary } from "../lib/api.js";
 import { formatCoordinates, formatMinutes, parseInterestString } from "../lib/formatters.js";
 
+const TRANSPORT_OPTIONS = [
+  { value: "auto", label: "Auto" },
+  { value: "walking", label: "Walking" },
+  { value: "cycling", label: "Cycling" },
+  { value: "driving", label: "Driving" },
+];
+const EXPENSE_OPTIONS = [
+  { value: "budget", label: "Budget" },
+  { value: "balanced", label: "Balanced" },
+  { value: "premium", label: "Premium" },
+];
+
 function Panel({ title, subtitle, children }) {
   return (
     <section className="rounded-[1.75rem] border border-white/10 bg-white/[0.05] p-6 shadow-[0_18px_45px_rgba(2,6,23,0.24)]">
@@ -26,6 +38,8 @@ export default function BusinessSetupPage() {
   const [baseLocationQuery, setBaseLocationQuery] = useState("");
   const [interestInput, setInterestInput] = useState("");
   const [notes, setNotes] = useState("");
+  const [transportMode, setTransportMode] = useState("auto");
+  const [expenseMode, setExpenseMode] = useState("balanced");
   const [refinementOptions, setRefinementOptions] = useState([]);
   const [error, setError] = useState("");
   const [isExtracting, setIsExtracting] = useState(false);
@@ -47,6 +61,8 @@ export default function BusinessSetupPage() {
       weatherContext: null,
       tripId: "",
       documentName: "",
+      transportMode: "auto",
+      expenseMode: "balanced",
       poiSource: "",
       poiRadiusMeters: 0,
     });
@@ -55,6 +71,8 @@ export default function BusinessSetupPage() {
     setBaseLocationQuery("");
     setInterestInput("");
     setNotes("");
+    setTransportMode("auto");
+    setExpenseMode("balanced");
     setRefinementOptions([]);
     setError("");
   }, [mergePlannerState]);
@@ -98,6 +116,8 @@ export default function BusinessSetupPage() {
         interests: extracted.preferences,
         notes: extracted.notes,
         refinementOptions,
+        transportMode,
+        expenseMode,
         scheduleText: extracted.scheduleText,
         schedule: extracted.schedule,
         freeSlots: extracted.freeSlots,
@@ -154,6 +174,8 @@ export default function BusinessSetupPage() {
           interests: parseInterestString(interestInput),
           notes,
           refinementOptions,
+          transportMode,
+          expenseMode,
           freeSlots: plannerState.freeSlots,
           rawPois: plannerState.rawPois,
           schedule: plannerState.schedule,
@@ -167,6 +189,8 @@ export default function BusinessSetupPage() {
         interests: parseInterestString(interestInput),
         notes,
         refinementOptions,
+        transportMode,
+        expenseMode,
         itinerary: response.itinerary,
         ai: response.ai,
         weatherContext: response.weatherContext || null,
@@ -262,6 +286,39 @@ export default function BusinessSetupPage() {
               />
             </label>
 
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-slate-200">
+                  Transportation mode
+                </span>
+                <select
+                  value={transportMode}
+                  onChange={(event) => setTransportMode(event.target.value)}
+                  className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-300/40"
+                >
+                  {TRANSPORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-slate-200">Expense mode</span>
+                <select
+                  value={expenseMode}
+                  onChange={(event) => setExpenseMode(event.target.value)}
+                  className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-300/40"
+                >
+                  {EXPENSE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
             <label className="block">
               <span className="mb-2 block text-sm font-medium text-slate-200">
                 One-click refinement
@@ -320,6 +377,17 @@ export default function BusinessSetupPage() {
                   <div className="rounded-2xl border border-white/10 bg-black/[0.18] p-4">
                     <p className="text-sm text-slate-400">Free windows</p>
                     <p className="mt-2 font-semibold text-white">{freeSlots.length}</p>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="rounded-2xl border border-white/10 bg-black/[0.18] p-4">
+                    <p className="text-sm text-slate-400">Transport mode</p>
+                    <p className="mt-2 font-semibold text-white">{transportMode}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/[0.18] p-4">
+                    <p className="text-sm text-slate-400">Expense mode</p>
+                    <p className="mt-2 font-semibold text-white">{expenseMode}</p>
                   </div>
                 </div>
 

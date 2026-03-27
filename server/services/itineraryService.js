@@ -20,6 +20,14 @@ function normalizeRefinementOptions(refinementOptions) {
   );
 }
 
+function normalizeTransportMode(value) {
+  return ["auto", "walking", "cycling", "driving"].includes(value) ? value : "auto";
+}
+
+function normalizeExpenseMode(value) {
+  return ["budget", "balanced", "premium"].includes(value) ? value : "balanced";
+}
+
 function getInterestCategoryMatches(poi, interests) {
   const categories = `${poi.category || ""} ${poi.categoryLabel || ""} ${poi.name || ""} ${poi.tagSummary || ""}`.toLowerCase();
 
@@ -244,7 +252,15 @@ function optimizeCandidatePlaces({
     .slice(0, limit);
 }
 
-function describeTravelerProfile({ travelerMode, interests, notes, freeSlots, refinementOptions }) {
+function describeTravelerProfile({
+  travelerMode,
+  interests,
+  notes,
+  freeSlots,
+  refinementOptions,
+  transportMode,
+  expenseMode,
+}) {
   const preferenceSignals = inferPreferenceSignals(notes, interests, travelerMode, refinementOptions);
   const normalizedInterests = parseInterestInput(interests);
   const summaryParts = [];
@@ -275,10 +291,35 @@ function describeTravelerProfile({ travelerMode, interests, notes, freeSlots, re
   const totalFreeMinutes = freeSlots.reduce((sum, slot) => sum + slot.durationMinutes, 0);
 
   return {
-    summary: `This pass is tuned for a ${summaryParts.join(", ")} traveler with ${Math.round(totalFreeMinutes / 30) * 30} flexible minutes available.`,
+    summary: `This pass is tuned for a ${summaryParts.join(", ")} traveler with ${Math.round(totalFreeMinutes / 30) * 30} flexible minutes available, ${normalizeTransportMode(transportMode)} transport preference, and a ${normalizeExpenseMode(expenseMode)} spend style.`,
     strongestInterest,
     preferenceSignals,
     refinementOptions: normalizeRefinementOptions(refinementOptions),
+    transportMode: normalizeTransportMode(transportMode),
+    expenseMode: normalizeExpenseMode(expenseMode),
+  };
+}
+
+function estimateStopCost({ poi, expenseMode }) {
+  const mode = normalizeExpenseMode(expenseMode);
+  const category = poi.category || "";
+  const baseCost =
+    /restaurant/.test(category) ? 28 :
+    /cafe/.test(category) ? 12 :
+    /museum|gallery/.test(category) ? 18 :
+    /historic|viewpoint|park/.test(category) ? 8 : 10;
+  const multiplier = mode === "budget" ? 0.7 : mode === "premium" ? 1.55 : 1;
+  const amount = Math.max(4, Math.round(baseCost * multiplier));
+
+  return {
+    amount,
+    currency: "USD",
+    label:
+      mode === "budget"
+        ? "Budget-friendly"
+        : mode === "premium"
+          ? "Premium leaning"
+          : "Balanced spend",
   };
 }
 
@@ -468,10 +509,20 @@ function buildDeterministicItinerary({
   rawPoiCount,
   refinementOptions = [],
   weatherContext = null,
+  transportMode = "auto",
+  expenseMode = "balanced",
 }) {
   const remainingPois = [...shortlistedPois];
   const timeline = [];
-  const profile = describeTravelerProfile({ travelerMode, interests, notes, freeSlots, refinementOptions });
+  const profile = describeTravelerProfile({
+    travelerMode,
+    interests,
+    notes,
+    freeSlots,
+    refinementOptions,
+    transportMode,
+    expenseMode,
+  });
 
   freeSlots.forEach((slot) => {
     let remaining = slot.durationMinutes;
@@ -509,6 +560,7 @@ function buildDeterministicItinerary({
       const startMinutes = cursor + travelMinutes;
       const endMinutes = startMinutes + stayMinutes;
       const reasoningPoints = buildReasonDetails({ poi, travelerMode, slot, profile, weatherContext });
+      const costEstimate = estimateStopCost({ poi, expenseMode });
 
       timeline.push({
         id: `${slot.id}-${poi.id}`,
@@ -524,6 +576,7 @@ function buildDeterministicItinerary({
         score: selected.slotScore,
         reason: buildReason({ poi, travelerMode, slot, profile, weatherContext }),
         highlight: buildHighlight(poi, slot),
+        costEstimate,
         explanation: {
           whyChosen: reasoningPoints,
           personalization:
@@ -567,6 +620,7 @@ function buildDeterministicItinerary({
   const totalFreeMinutes = freeSlots.reduce((sum, slot) => sum + slot.durationMinutes, 0);
   const totalVisitMinutes = timeline.reduce((sum, item) => sum + item.durationMinutes, 0);
   const totalTravelMinutes = timeline.reduce((sum, item) => sum + item.travelMinutes, 0);
+  const totalEstimatedCost = timeline.reduce((sum, item) => sum + (item.costEstimate?.amount || 0), 0);
   const usedMinutes = totalVisitMinutes + totalTravelMinutes;
   const utilizationRate = totalFreeMinutes ? Math.min(100, Math.round((usedMinutes / totalFreeMinutes) * 100)) : 0;
 
@@ -590,6 +644,8 @@ function buildDeterministicItinerary({
     travelerProfile: profile,
     refinementOptions: normalizeRefinementOptions(refinementOptions),
     weatherContext,
+    transportMode: normalizeTransportMode(transportMode),
+    expenseMode: normalizeExpenseMode(expenseMode),
     decisionSummary: {
       primaryLens:
         travelerMode === "business"
@@ -607,6 +663,7 @@ function buildDeterministicItinerary({
       totalVisitMinutes,
       totalFreeMinutes,
       utilizationRate,
+      totalEstimatedCost,
     },
     tips: [
       travelerMode === "business"
@@ -622,6 +679,8 @@ module.exports = {
   buildDeterministicItinerary,
   deriveFreeSlots,
   getNoteMatches,
+  normalizeExpenseMode,
   normalizeRefinementOptions,
+  normalizeTransportMode,
   optimizeCandidatePlaces,
 };

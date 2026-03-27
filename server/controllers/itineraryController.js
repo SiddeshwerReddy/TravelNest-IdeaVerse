@@ -5,7 +5,9 @@ const { calculateTravelMatrix } = require("../services/routingService");
 const {
   buildDeterministicItinerary,
   deriveFreeSlots,
+  normalizeExpenseMode,
   normalizeRefinementOptions,
+  normalizeTransportMode,
   optimizeCandidatePlaces,
 } = require("../services/itineraryService");
 const { generateStructuredItinerary, hasGeminiConfig } = require("../services/geminiService");
@@ -69,6 +71,8 @@ function formatTripSummary(trip) {
     sourceDocumentName: trip.sourceDocumentName || "",
     stats: trip.itinerary?.stats || null,
     travelerProfile: trip.itinerary?.travelerProfile || trip.travelerProfile || null,
+    transportMode: trip.transportMode || trip.itinerary?.transportMode || "auto",
+    expenseMode: trip.expenseMode || trip.itinerary?.expenseMode || "balanced",
     itineraryHeadline: trip.itinerary?.headline || "",
     itineraryOverview: trip.itinerary?.overview || "",
     analytics,
@@ -88,6 +92,8 @@ exports.optimizeItinerary = async (req, res) => {
     const notes = req.body.notes?.trim() || "";
     const preferences = parseInterestInput(req.body.interests);
     const refinementOptions = normalizeRefinementOptions(req.body.refinementOptions);
+    const transportMode = normalizeTransportMode(req.body.transportMode);
+    const expenseMode = normalizeExpenseMode(req.body.expenseMode);
     const freeSlots = deriveFreeSlots({
       travelerMode,
       freeSlots: req.body.freeSlots,
@@ -163,6 +169,7 @@ exports.optimizeItinerary = async (req, res) => {
       pois: prerankedPois.slice(0, 24),
       travelerMode,
       availableMinutes: Math.max(...freeSlots.map((slot) => slot.durationMinutes), 0),
+      transportMode,
     });
 
     const shortlistedPois = optimizeCandidatePlaces({
@@ -186,6 +193,8 @@ exports.optimizeItinerary = async (req, res) => {
       rawPoiCount: rawPois.length,
       refinementOptions,
       weatherContext,
+      transportMode,
+      expenseMode,
     });
 
     const aiItinerary = await generateStructuredItinerary({
@@ -226,6 +235,8 @@ exports.optimizeItinerary = async (req, res) => {
         itinerary,
         sourceDocumentName: req.body.documentName || null,
         travelerProfile: itinerary.travelerProfile || null,
+        transportMode,
+        expenseMode,
       });
 
       tripId = savedTrip._id;
@@ -246,6 +257,8 @@ exports.optimizeItinerary = async (req, res) => {
         rawPois.length > 0 ? Array.from(new Set(rawPois.map((poi) => poi.source || "unknown"))).join(", ") : "none",
       itinerary,
       weatherContext,
+      transportMode,
+      expenseMode,
       rawPoiCount: rawPois.length,
       prerankedPoiCount: prerankedPois.length,
       selectedPoiCount: itinerary.mapPoints?.length || 0,
@@ -319,6 +332,8 @@ exports.getTripHistoryItem = async (req, res) => {
         freeSlots: trip.freeSlots || [],
         rawPois: trip.rawPois || [],
         itinerary: trip.itinerary || null,
+        transportMode: trip.transportMode || trip.itinerary?.transportMode || "auto",
+        expenseMode: trip.expenseMode || trip.itinerary?.expenseMode || "balanced",
       },
     });
   } catch (error) {

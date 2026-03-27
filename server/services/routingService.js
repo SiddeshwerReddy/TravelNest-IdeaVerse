@@ -1,17 +1,24 @@
 const axios = require("axios");
 
-async function calculateTravelMatrix({ origin, pois, travelerMode, availableMinutes }) {
+function resolveTravelProfile({ travelerMode, availableMinutes, transportMode }) {
+  if (transportMode && transportMode !== "auto") {
+    return transportMode;
+  }
+
+  return travelerMode === "business"
+    ? "driving"
+    : Number(availableMinutes || 0) >= 240
+      ? "cycling"
+      : "walking";
+}
+
+async function calculateTravelMatrix({ origin, pois, travelerMode, availableMinutes, transportMode }) {
   if (!origin || !Array.isArray(pois) || pois.length === 0) {
     return [];
   }
 
   const baseUrl = process.env.OSRM_API_URL || "https://router.project-osrm.org";
-  const profile =
-    travelerMode === "business"
-      ? "driving"
-      : Number(availableMinutes || 0) >= 240
-        ? "cycling"
-        : "walking";
+  const profile = resolveTravelProfile({ travelerMode, availableMinutes, transportMode });
   const coordinates = [
     `${origin.lng},${origin.lat}`,
     ...pois.map((poi) => `${poi.lng},${poi.lat}`),
@@ -47,4 +54,5 @@ async function calculateTravelMatrix({ origin, pois, travelerMode, availableMinu
 
 module.exports = {
   calculateTravelMatrix,
+  resolveTravelProfile,
 };

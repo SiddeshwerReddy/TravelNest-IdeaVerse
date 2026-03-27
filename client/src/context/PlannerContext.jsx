@@ -21,6 +21,8 @@ const defaultPlannerState = {
   storageStatus: "",
   documentName: "",
   availableMinutes: 180,
+  transportMode: "auto",
+  expenseMode: "balanced",
   poiSource: "",
   poiRadiusMeters: 0,
 };

@@ -2,6 +2,22 @@ const mongoose = require("mongoose");
 
 const TripSchema = new mongoose.Schema(
   {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      index: true,
+      default: null,
+    },
+    userSnapshot: {
+      clerkId: String,
+      fullName: String,
+      email: String,
+    },
+    title: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     mode: {
       type: String,
       enum: ["business", "leisure"],
@@ -19,10 +35,13 @@ const TripSchema = new mongoose.Schema(
     rawPois: [mongoose.Schema.Types.Mixed],
     itinerary: mongoose.Schema.Types.Mixed,
     sourceDocumentName: String,
+    travelerProfile: mongoose.Schema.Types.Mixed,
   },
   {
     timestamps: true,
   }
 );
+
+TripSchema.index({ user: 1, updatedAt: -1 });
 
 module.exports = mongoose.model("Trip", TripSchema);

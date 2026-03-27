@@ -3,7 +3,7 @@ import { useAuth } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import { Compass, LoaderCircle, MapPinned, Sparkles } from "lucide-react";
 import { usePlanner } from "../context/PlannerContext.jsx";
-import { fetchPois, optimizeItinerary } from "../lib/api.js";
+import { fetchPois, geocodePlace, optimizeItinerary } from "../lib/api.js";
 import { formatCoordinates, formatMinutes, parseInterestString } from "../lib/formatters.js";
 
 function Panel({ title, subtitle, children }) {
@@ -16,31 +16,71 @@ function Panel({ title, subtitle, children }) {
   );
 }
 
+function distanceBetweenKm(origin, destination) {
+  if (!origin || !destination) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const toRadians = (value) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const deltaLat = toRadians(destination.lat - origin.lat);
+  const deltaLng = toRadians(destination.lng - origin.lng);
+  const lat1 = toRadians(origin.lat);
+  const lat2 = toRadians(destination.lat);
+  const arc =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2);
+
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(arc), Math.sqrt(1 - arc));
+}
+
 export default function LeisureSetupPage() {
   const navigate = useNavigate();
   const { getToken } = useAuth();
   const { plannerState, mergePlannerState } = usePlanner();
-  const [interestInput, setInterestInput] = useState(plannerState.interests.join(", "));
-  const [availableMinutes, setAvailableMinutes] = useState(plannerState.availableMinutes || 180);
-  const [areaLabel, setAreaLabel] = useState(plannerState.location?.label || "");
-  const [notes, setNotes] = useState(plannerState.notes || "");
-  const [locationDraft, setLocationDraft] = useState(
-    plannerState.location || {
-      lat: "",
-      lng: "",
-      label: "",
-    }
-  );
+  const [interestInput, setInterestInput] = useState("");
+  const [availableMinutes, setAvailableMinutes] = useState(180);
+  const [areaLabel, setAreaLabel] = useState("");
+  const [notes, setNotes] = useState("");
+  const [locationDraft, setLocationDraft] = useState({
+    lat: "",
+    lng: "",
+    label: "",
+  });
   const [isLocating, setIsLocating] = useState(false);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (plannerState.mode !== "leisure") {
-      mergePlannerState({ mode: "leisure" });
-    }
-  }, [mergePlannerState, plannerState.mode]);
+    mergePlannerState({
+      mode: "leisure",
+      location: null,
+      interests: [],
+      notes: "",
+      scheduleText: "",
+      schedule: null,
+      freeSlots: [],
+      rawPois: [],
+      itinerary: null,
+      ai: null,
+      tripId: "",
+      documentName: "",
+      availableMinutes: 180,
+      poiSource: "",
+      poiRadiusMeters: 0,
+    });
+    setInterestInput("");
+    setAvailableMinutes(180);
+    setAreaLabel("");
+    setNotes("");
+    setLocationDraft({
+      lat: "",
+      lng: "",
+      label: "",
+    });
+    setError("");
+  }, [mergePlannerState]);
 
   useEffect(() => {
     if (!plannerState.location?.lat && navigator.geolocation) {
@@ -69,6 +109,52 @@ export default function LeisureSetupPage() {
 
   const previewPois = plannerState.rawPois.slice(0, 8);
 
+  async function resolvePlanningLocation() {
+    const trimmedAreaLabel = areaLabel.trim();
+
+    if (trimmedAreaLabel) {
+      try {
+        const response = await geocodePlace(trimmedAreaLabel, getToken);
+        const resolvedLocation = {
+          lat: response.location.lat,
+          lng: response.location.lng,
+          label: response.location.label,
+        };
+
+        setAreaLabel(response.location.label);
+        setLocationDraft(resolvedLocation);
+        mergePlannerState({ location: resolvedLocation, mode: "leisure" });
+        return resolvedLocation;
+      } catch (requestError) {
+        const fallbackLat = Number(locationDraft.lat);
+        const fallbackLng = Number(locationDraft.lng);
+
+        if (!Number.isNaN(fallbackLat) && !Number.isNaN(fallbackLng)) {
+          return {
+            lat: fallbackLat,
+            lng: fallbackLng,
+            label: trimmedAreaLabel,
+          };
+        }
+
+        throw requestError;
+      }
+    }
+
+    const lat = Number(locationDraft.lat);
+    const lng = Number(locationDraft.lng);
+
+    if (Number.isNaN(lat) || Number.isNaN(lng)) {
+      throw new Error("Enter a valid place name or coordinates first.");
+    }
+
+    return {
+      lat,
+      lng,
+      label: trimmedAreaLabel || "Current location",
+    };
+  }
+
   function detectLocation() {
     setError("");
     setIsLocating(true);
@@ -94,22 +180,15 @@ export default function LeisureSetupPage() {
   }
 
   async function loadPoiPreview() {
-    const lat = Number(locationDraft.lat);
-    const lng = Number(locationDraft.lng);
-
-    if (Number.isNaN(lat) || Number.isNaN(lng)) {
-      setError("Enter valid coordinates or use Detect My Location first.");
-      return;
-    }
-
     setError("");
     setIsPreviewLoading(true);
 
     try {
+      const resolvedLocation = await resolvePlanningLocation();
       const response = await fetchPois(
         {
-          lat,
-          lng,
+          lat: resolvedLocation.lat,
+          lng: resolvedLocation.lng,
           freeMinutes: availableMinutes,
           travelerMode: "leisure",
           interests: interestInput,
@@ -119,11 +198,7 @@ export default function LeisureSetupPage() {
 
       mergePlannerState({
         mode: "leisure",
-        location: {
-          lat,
-          lng,
-          label: areaLabel || "Current location",
-        },
+        location: resolvedLocation,
         interests: parseInterestString(interestInput),
         notes,
         availableMinutes,
@@ -132,59 +207,58 @@ export default function LeisureSetupPage() {
         poiRadiusMeters: response.radiusMeters,
       });
     } catch (requestError) {
-      setError(requestError.response?.data?.error || "Unable to fetch nearby places right now.");
+      setError(
+        requestError.response?.data?.error ||
+          requestError.message ||
+          "Unable to fetch nearby places right now."
+      );
     } finally {
       setIsPreviewLoading(false);
     }
   }
 
   async function handleGenerateItinerary() {
-    const lat = Number(locationDraft.lat);
-    const lng = Number(locationDraft.lng);
-
-    if (Number.isNaN(lat) || Number.isNaN(lng)) {
-      setError("Detect your location or add coordinates before generating an itinerary.");
-      return;
-    }
-
     setError("");
     setIsGenerating(true);
 
     try {
+      const resolvedLocation = await resolvePlanningLocation();
+      const shouldReusePreviewPois =
+        plannerState.location &&
+        distanceBetweenKm(plannerState.location, resolvedLocation) <= 5 &&
+        plannerState.rawPois.length > 0;
       const response = await optimizeItinerary(
         {
           travelerMode: "leisure",
-          location: {
-            lat,
-            lng,
-            label: areaLabel || "Current location",
-          },
+          location: resolvedLocation,
           interests: parseInterestString(interestInput),
           notes,
           availableMinutes,
-          rawPois: plannerState.rawPois,
+          rawPois: shouldReusePreviewPois ? plannerState.rawPois : [],
         },
         getToken
       );
 
       mergePlannerState({
         mode: "leisure",
-        location: {
-          lat,
-          lng,
-          label: areaLabel || "Current location",
-        },
+        location: resolvedLocation,
         interests: parseInterestString(interestInput),
         notes,
         availableMinutes,
+        rawPois: shouldReusePreviewPois ? plannerState.rawPois : [],
         itinerary: response.itinerary,
         ai: response.ai,
+        tripId: response.tripId || "",
         poiSource: response.poiSource || plannerState.poiSource,
       });
 
       navigate("/itinerary");
     } catch (requestError) {
-      setError(requestError.response?.data?.error || "Unable to build the itinerary right now.");
+      setError(
+        requestError.response?.data?.error ||
+          requestError.message ||
+          "Unable to build the itinerary right now."
+      );
     } finally {
       setIsGenerating(false);
     }
@@ -243,11 +317,11 @@ export default function LeisureSetupPage() {
 
             <div className="grid gap-4 md:grid-cols-2">
               <label className="block">
-                <span className="mb-2 block text-sm font-medium text-slate-200">Area label</span>
+                <span className="mb-2 block text-sm font-medium text-slate-200">Place name or area</span>
                 <input
                   value={areaLabel}
                   onChange={(event) => setAreaLabel(event.target.value)}
-                  placeholder="Fort Kochi waterfront"
+                  placeholder="Bengaluru, Agra Fort, Fort Kochi waterfront"
                   className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-300/40"
                 />
               </label>

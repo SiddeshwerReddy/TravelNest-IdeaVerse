@@ -36,6 +36,45 @@ export default function ItineraryTimeline({ timeline = [] }) {
 
               <p className="text-sm leading-6 text-slate-300">{item.reason}</p>
 
+              {item.explanation ? (
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-2xl border border-white/10 bg-black/[0.18] p-4">
+                    <p className="text-xs uppercase tracking-[0.22em] text-slate-400">
+                      Why Chosen
+                    </p>
+                    <div className="mt-2 space-y-2 text-sm text-slate-200">
+                      {(item.explanation.whyChosen || []).map((point) => (
+                        <p key={point}>{point}</p>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/[0.18] p-4">
+                    <p className="text-xs uppercase tracking-[0.22em] text-slate-400">
+                      Personalization
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-slate-200">
+                      {item.explanation.personalization}
+                    </p>
+                    <p className="mt-3 text-sm leading-6 text-cyan-100">
+                      {item.explanation.scheduleFit}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/[0.18] p-4">
+                    <p className="text-xs uppercase tracking-[0.22em] text-slate-400">
+                      Tradeoff
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-slate-200">
+                      {item.explanation.tradeoff}
+                    </p>
+                    {item.slotContext?.label ? (
+                      <p className="mt-3 text-xs uppercase tracking-[0.2em] text-slate-400">
+                        {item.slotContext.label}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
               <div className="flex flex-wrap gap-3 text-sm text-slate-300">
                 <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/[0.18] px-3 py-2">
                   <Clock3 className="h-4 w-4 text-cyan-300" />

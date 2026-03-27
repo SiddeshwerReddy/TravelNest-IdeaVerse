@@ -38,6 +38,12 @@ exports.extractSchedule = async (req, res) => {
       });
     }
 
+    const fallbackSchedule = inferScheduleFallback({
+      rawText: scheduleText,
+      fallbackCity,
+      preferences,
+    });
+
     const geminiSchedule = await extractScheduleWithGemini({
         rawText: scheduleText,
         fallbackCity,
@@ -45,13 +51,35 @@ exports.extractSchedule = async (req, res) => {
         notes,
       });
 
-    const aiSchedule =
-      geminiSchedule ||
-      inferScheduleFallback({
-        rawText: scheduleText,
-        fallbackCity,
-        preferences,
-      });
+    const aiSchedule = geminiSchedule
+      ? {
+          ...fallbackSchedule,
+          ...geminiSchedule,
+          city:
+            geminiSchedule.city && geminiSchedule.city.trim()
+              ? geminiSchedule.city.trim()
+              : fallbackSchedule.city,
+          primaryLocationQuery:
+            geminiSchedule.primaryLocationQuery && geminiSchedule.primaryLocationQuery.trim()
+              ? geminiSchedule.primaryLocationQuery.trim()
+              : fallbackSchedule.primaryLocationQuery,
+          meetings: (geminiSchedule.meetings || []).map((meeting, index) => {
+            const fallbackMeeting = fallbackSchedule.meetings[index];
+            const genericGeminiLocation =
+              !meeting.locationName ||
+              (fallbackCity && meeting.locationName.trim().toLowerCase() === fallbackCity.toLowerCase());
+
+            return {
+              ...fallbackMeeting,
+              ...meeting,
+              locationName:
+                genericGeminiLocation && fallbackMeeting?.locationName
+                  ? fallbackMeeting.locationName
+                  : meeting.locationName || fallbackMeeting?.locationName || "",
+            };
+          }),
+        }
+      : fallbackSchedule;
 
     const meetings = normalizeMeetings(aiSchedule.meetings || []);
     const freeSlots = buildFreeSlots(meetings, {
@@ -61,8 +89,8 @@ exports.extractSchedule = async (req, res) => {
 
     const locationCandidates = [
       aiSchedule.primaryLocationQuery,
-      aiSchedule.city,
       meetings.find((meeting) => meeting.locationName)?.locationName,
+      aiSchedule.city,
       fallbackCity,
     ].filter(Boolean);
 

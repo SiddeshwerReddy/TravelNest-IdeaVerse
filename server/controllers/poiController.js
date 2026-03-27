@@ -3,6 +3,7 @@ const {
   computeDiscoveryRadius,
   fetchNearbyPois,
 } = require("../services/overpassService");
+const { geocodeQuery } = require("../services/geocodingService");
 const { parseInterestInput } = require("../utils/interests");
 
 exports.fetchPois = async (req, res) => {
@@ -65,6 +66,32 @@ exports.fetchPois = async (req, res) => {
     console.error("fetchPois failed:", error);
     res.status(500).json({
       error: error.message || "Failed to fetch nearby POIs.",
+    });
+  }
+};
+
+exports.geocodePlace = async (req, res) => {
+  try {
+    const query = req.query.query?.trim();
+
+    if (!query) {
+      return res.status(400).json({
+        error: "query is required.",
+      });
+    }
+
+    const location = await geocodeQuery(query);
+
+    if (!location) {
+      return res.status(404).json({
+        error: "No matching location found.",
+      });
+    }
+
+    return res.json({ location });
+  } catch (error) {
+    return res.status(500).json({
+      error: error.message || "Failed to geocode location.",
     });
   }
 };

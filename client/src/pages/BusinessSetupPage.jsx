@@ -21,19 +21,38 @@ export default function BusinessSetupPage() {
   const { getToken } = useAuth();
   const { plannerState, mergePlannerState } = usePlanner();
   const [selectedFile, setSelectedFile] = useState(null);
-  const [scheduleTextInput, setScheduleTextInput] = useState(plannerState.scheduleText || "");
-  const [baseLocationQuery, setBaseLocationQuery] = useState(plannerState.location?.label || "");
-  const [interestInput, setInterestInput] = useState(plannerState.interests.join(", "));
-  const [notes, setNotes] = useState(plannerState.notes || "");
+  const [scheduleTextInput, setScheduleTextInput] = useState("");
+  const [baseLocationQuery, setBaseLocationQuery] = useState("");
+  const [interestInput, setInterestInput] = useState("");
+  const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
   const [isExtracting, setIsExtracting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
 
   useEffect(() => {
-    if (plannerState.mode !== "business") {
-      mergePlannerState({ mode: "business" });
-    }
-  }, [mergePlannerState, plannerState.mode]);
+    mergePlannerState({
+      mode: "business",
+      location: null,
+      interests: [],
+      notes: "",
+      scheduleText: "",
+      schedule: null,
+      freeSlots: [],
+      rawPois: [],
+      itinerary: null,
+      ai: null,
+      tripId: "",
+      documentName: "",
+      poiSource: "",
+      poiRadiusMeters: 0,
+    });
+    setSelectedFile(null);
+    setScheduleTextInput("");
+    setBaseLocationQuery("");
+    setInterestInput("");
+    setNotes("");
+    setError("");
+  }, [mergePlannerState]);
 
   const freeSlots = plannerState.freeSlots || [];
   const meetings = plannerState.schedule?.meetings || [];
@@ -142,6 +161,7 @@ export default function BusinessSetupPage() {
         notes,
         itinerary: response.itinerary,
         ai: response.ai,
+        tripId: response.tripId || "",
         poiSource: response.poiSource || plannerState.poiSource,
       });
 
@@ -313,6 +333,22 @@ export default function BusinessSetupPage() {
                     ))}
                   </div>
                 </div>
+
+                {plannerState.schedule.constraints?.length ? (
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">Planning constraints</h3>
+                    <div className="mt-3 space-y-2 text-sm text-slate-300">
+                      {plannerState.schedule.constraints.map((constraint) => (
+                        <div
+                          key={constraint}
+                          className="rounded-2xl border border-amber-300/15 bg-amber-400/10 p-4 text-amber-100"
+                        >
+                          {constraint}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : (
               <p className="text-sm leading-7 text-slate-300">
@@ -329,11 +365,16 @@ export default function BusinessSetupPage() {
                 <div className="mt-3 space-y-2 text-sm text-slate-300">
                   {freeSlots.length ? (
                     freeSlots.map((slot) => (
-                      <div key={slot.id} className="flex items-center justify-between">
-                        <span>
-                          {slot.startLabel} - {slot.endLabel}
-                        </span>
-                        <span>{formatMinutes(slot.durationMinutes)}</span>
+                      <div key={slot.id} className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <span>
+                            {slot.startLabel} - {slot.endLabel}
+                          </span>
+                          <span>{formatMinutes(slot.durationMinutes)}</span>
+                        </div>
+                        <p className="mt-2 text-xs text-slate-400">
+                          {slot.contextLabel || "Flexible free window"}
+                        </p>
                       </div>
                     ))
                   ) : (

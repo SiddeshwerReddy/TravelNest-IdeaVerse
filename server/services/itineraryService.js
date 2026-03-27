@@ -1,4 +1,8 @@
-const { buildFreeSlots, minutesToClockLabel, parseTimeToMinutes } = require("../utils/time");
+const {
+  buildFreeSlots,
+  minutesToClockLabel,
+  parseTimeToMinutes,
+} = require("../utils/time");
 const { parseInterestInput } = require("../utils/interests");
 
 function getInterestCategoryMatches(poi, interests) {
@@ -36,9 +40,43 @@ function getNoteMatches(poi, notes) {
   return noteTerms.filter((term) => term.length > 2 && haystack.includes(term));
 }
 
-function deriveFreeSlots({ travelerMode, freeSlots, availableMinutes }) {
+function normalizeExistingFreeSlots(freeSlots) {
+  return freeSlots
+    .map((slot, index) => {
+      const startMinutes = parseTimeToMinutes(slot.startTime);
+      const endMinutes = parseTimeToMinutes(slot.endTime);
+
+      if (startMinutes == null || endMinutes == null || endMinutes <= startMinutes) {
+        return null;
+      }
+
+      return {
+        id: slot.id || `slot-${index + 1}`,
+        label: slot.label || `Free Slot ${index + 1}`,
+        startTime: minutesToClockLabel(startMinutes),
+        endTime: minutesToClockLabel(endMinutes),
+        startLabel: slot.startLabel || minutesToClockLabel(startMinutes),
+        endLabel: slot.endLabel || minutesToClockLabel(endMinutes),
+        durationMinutes: slot.durationMinutes || endMinutes - startMinutes,
+        slotType: slot.slotType || "open-day",
+        contextLabel: slot.contextLabel || "Flexible open window",
+        previousMeeting: slot.previousMeeting || null,
+        nextMeeting: slot.nextMeeting || null,
+      };
+    })
+    .filter(Boolean);
+}
+
+function deriveFreeSlots({ travelerMode, freeSlots, availableMinutes, scheduleData }) {
+  if (scheduleData?.meetings?.length) {
+    return buildFreeSlots(scheduleData.meetings, {
+      dayStart: "08:00",
+      dayEnd: "21:00",
+    });
+  }
+
   if (Array.isArray(freeSlots) && freeSlots.length > 0) {
-    return freeSlots;
+    return normalizeExistingFreeSlots(freeSlots);
   }
 
   const minutes = Number(availableMinutes) || (travelerMode === "business" ? 120 : 180);
@@ -57,8 +95,22 @@ function computeInterestMatches(poi, interests) {
   return Array.from(new Set([...directMatches, ...categoryMatches]));
 }
 
+function inferPreferenceSignals(notes, interests, travelerMode) {
+  const combined = [...parseInterestInput(interests), ...parseInterestInput(notes)].join(" ");
+
+  return {
+    wantsQuiet: /quiet|calm|peaceful|focus|low-key|avoid crowds/.test(combined),
+    wantsFood: /food|dining|restaurant|coffee|cafe|brunch|snack/.test(combined),
+    wantsCulture: /museum|heritage|historic|culture|gallery|design|architecture/.test(combined),
+    wantsNature: /park|garden|nature|walk|outdoor|sunset|view/.test(combined),
+    wantsShortDetours: travelerMode === "business" || /avoid long detours|close by|nearby|walkable|light transit/.test(combined),
+    wantsPhotoFriendly: /photo|photography|view|sunset|scenic/.test(combined),
+  };
+}
+
 function optimizeCandidatePlaces({ pois, travelerMode, interests, freeSlots, notes = "", limit = 10 }) {
   const interestTerms = parseInterestInput(interests);
+  const preferenceSignals = inferPreferenceSignals(notes, interests, travelerMode);
   const maxUsefulMinutes = Math.max(...freeSlots.map((slot) => slot.durationMinutes), 90);
   const clusterCounts = new Map();
 
@@ -70,16 +122,21 @@ function optimizeCandidatePlaces({ pois, travelerMode, interests, freeSlots, not
       const lat = Number(poi.lat);
       const lng = Number(poi.lng);
       const travelToleranceDivisor = maxUsefulMinutes >= 300 ? 35 : maxUsefulMinutes >= 180 ? 28 : 20;
-      const accessibilityScore = Math.max(0, 3 - (poi.travelMinutes || 0) / travelToleranceDivisor);
+      const accessibilityScore = Math.max(0, 3.2 - (poi.travelMinutes || 0) / travelToleranceDivisor);
       const fitScore = poi.visitDurationMinutes <= maxUsefulMinutes ? 1.5 : 0.4;
       const modeBonus =
         travelerMode === "business" && poi.category === "cafe"
-          ? 0.8
+          ? 1
           : travelerMode === "leisure" && (poi.category === "park" || poi.category === "viewpoint")
-            ? 0.6
+            ? 0.7
             : 0;
-      const interestScore = interestMatches.length * 4.2;
-      const noteScore = noteMatches.length * 2.2;
+      const preferenceBonus =
+        (preferenceSignals.wantsQuiet && /park|garden|cafe|museum/.test(poi.category) ? 0.8 : 0) +
+        (preferenceSignals.wantsCulture && /museum|gallery|historic/.test(poi.category) ? 1.1 : 0) +
+        (preferenceSignals.wantsNature && /park|viewpoint/.test(poi.category) ? 0.9 : 0) +
+        (preferenceSignals.wantsFood && /cafe|restaurant/.test(poi.category) ? 0.8 : 0);
+      const interestScore = interestMatches.length * 4.4;
+      const noteScore = noteMatches.length * 2.4;
       const premiumInterestBonus =
         interestMatches.length > 0 && /museum|historic|gallery|park|viewpoint|restaurant|cafe/.test(poi.category)
           ? 1
@@ -92,6 +149,7 @@ function optimizeCandidatePlaces({ pois, travelerMode, interests, freeSlots, not
         accessibilityScore +
         fitScore +
         modeBonus +
+        preferenceBonus +
         premiumInterestBonus;
 
       return {
@@ -118,20 +176,169 @@ function optimizeCandidatePlaces({ pois, travelerMode, interests, freeSlots, not
     .slice(0, limit);
 }
 
-function buildReason(poi, travelerMode) {
-  if (poi.interestMatches?.length > 0) {
-    return `Matches your interest in ${poi.interestMatches.join(", ")} while keeping transit light.`;
+function describeTravelerProfile({ travelerMode, interests, notes, freeSlots }) {
+  const preferenceSignals = inferPreferenceSignals(notes, interests, travelerMode);
+  const normalizedInterests = parseInterestInput(interests);
+  const summaryParts = [];
+
+  if (travelerMode === "business") {
+    summaryParts.push("meeting-aware");
+  } else {
+    summaryParts.push("freeform");
   }
 
-  if (poi.noteMatches?.length > 0) {
-    return `Fits the extra detail you provided around ${poi.noteMatches.join(", ")}.`;
+  if (preferenceSignals.wantsCulture) {
+    summaryParts.push("culture leaning");
+  }
+
+  if (preferenceSignals.wantsFood) {
+    summaryParts.push("food friendly");
+  }
+
+  if (preferenceSignals.wantsNature) {
+    summaryParts.push("outdoor curious");
+  }
+
+  if (preferenceSignals.wantsShortDetours) {
+    summaryParts.push("short-detour focused");
+  }
+
+  const strongestInterest = normalizedInterests.slice(0, 3);
+  const totalFreeMinutes = freeSlots.reduce((sum, slot) => sum + slot.durationMinutes, 0);
+
+  return {
+    summary: `This pass is tuned for a ${summaryParts.join(", ")} traveler with ${Math.round(totalFreeMinutes / 30) * 30} flexible minutes available.`,
+    strongestInterest,
+    preferenceSignals,
+  };
+}
+
+function scorePoiForSlot({ poi, slot, travelerMode, profile }) {
+  const slotMinutes = slot.durationMinutes;
+  const travelMinutes = poi.travelMinutes || 12;
+  const stayMinutes = poi.visitDurationMinutes || 45;
+  const shortWindow = slotMinutes <= 90;
+  const longWindow = slotMinutes >= 150;
+  const slotType = slot.slotType || "open-day";
+  const category = poi.category || "";
+
+  let score = poi.score || 0;
+
+  if (stayMinutes + travelMinutes > slotMinutes - 12) {
+    score -= 4.5;
+  }
+
+  if (shortWindow) {
+    score -= travelMinutes * 0.22;
+    score += stayMinutes <= 45 ? 1.8 : -1;
+  }
+
+  if (longWindow) {
+    score += stayMinutes >= 50 ? 1.2 : 0;
   }
 
   if (travelerMode === "business") {
-    return "Fits into a work-day break with realistic travel time and a strong local payoff.";
+    if (slotType === "between-meetings") {
+      score += /cafe|restaurant|park/.test(category) ? 2.4 : 0;
+      score += travelMinutes <= 12 ? 1.6 : -1.2;
+      score += stayMinutes <= Math.max(55, slotMinutes - 25) ? 0.8 : -0.8;
+    }
+
+    if (slotType === "before-first-meeting") {
+      score += /cafe|park|viewpoint/.test(category) ? 1.5 : 0.4;
+      score += travelMinutes <= 15 ? 1.2 : -0.8;
+    }
+
+    if (slotType === "after-last-meeting") {
+      score += /museum|historic|gallery|restaurant|park/.test(category) ? 1.9 : 0;
+    }
   }
 
-  return "Offers a distinctive local stop without pushing the route too far from your current area.";
+  if (profile.preferenceSignals.wantsQuiet && /park|museum|gallery|cafe/.test(category)) {
+    score += 1;
+  }
+
+  if (profile.preferenceSignals.wantsPhotoFriendly && /viewpoint|historic|gallery/.test(category)) {
+    score += 0.8;
+  }
+
+  return Number(score.toFixed(2));
+}
+
+function buildScheduleFit(slot) {
+  if (slot.nextMeeting?.title && slot.previousMeeting?.title) {
+    return `Fits neatly between ${slot.previousMeeting.title} and ${slot.nextMeeting.title}.`;
+  }
+
+  if (slot.nextMeeting?.title) {
+    return `Leaves a clean buffer before ${slot.nextMeeting.title}.`;
+  }
+
+  if (slot.previousMeeting?.title) {
+    return `Works well as a decompression stop after ${slot.previousMeeting.title}.`;
+  }
+
+  return "Fits the available window without forcing a long detour.";
+}
+
+function buildReasonDetails({ poi, travelerMode, slot, profile }) {
+  const reasons = [];
+
+  if (poi.interestMatches?.length) {
+    reasons.push(`matches your stated interests in ${poi.interestMatches.join(", ")}`);
+  }
+
+  if (poi.noteMatches?.length) {
+    reasons.push(`echoes your notes about ${poi.noteMatches.join(", ")}`);
+  }
+
+  if ((poi.travelMinutes || 0) <= 12) {
+    reasons.push("keeps transit light");
+  }
+
+  if (travelerMode === "business") {
+    reasons.push(buildScheduleFit(slot).toLowerCase());
+  }
+
+  if (profile.preferenceSignals.wantsQuiet && /park|museum|gallery|cafe/.test(poi.category || "")) {
+    reasons.push("supports a calmer pace");
+  }
+
+  if (!reasons.length) {
+    reasons.push(
+      travelerMode === "business"
+        ? "fits a realistic workday break with solid local payoff"
+        : "adds distinctive local character without straying too far"
+    );
+  }
+
+  return reasons.slice(0, 3);
+}
+
+function buildReason({ poi, travelerMode, slot, profile }) {
+  const reasonDetails = buildReasonDetails({ poi, travelerMode, slot, profile });
+
+  return `${poi.name} was chosen because it ${reasonDetails.join(", ")}.`;
+}
+
+function buildHighlight(poi, slot) {
+  const context = slot.contextLabel || "Flexible window";
+  return `${context} • ${poi.categoryLabel} • ${(poi.travelMinutes || 0)} min away`;
+}
+
+function pickBestPoiForSlot({ remainingPois, slot, travelerMode, profile }) {
+  const ranked = remainingPois
+    .filter((poi) => {
+      const travelMinutes = Math.min(poi.travelMinutes || 12, Math.max(6, Math.floor(slot.durationMinutes / 3)));
+      return (poi.visitDurationMinutes || 45) + travelMinutes >= 25 && slot.durationMinutes - travelMinutes >= 25;
+    })
+    .map((poi) => ({
+      poi,
+      slotScore: scorePoiForSlot({ poi, slot, travelerMode, profile }),
+    }))
+    .sort((left, right) => right.slotScore - left.slotScore);
+
+  return ranked[0] || null;
 }
 
 function buildDeterministicItinerary({
@@ -145,16 +352,27 @@ function buildDeterministicItinerary({
 }) {
   const remainingPois = [...shortlistedPois];
   const timeline = [];
+  const profile = describeTravelerProfile({ travelerMode, interests, notes, freeSlots });
 
   freeSlots.forEach((slot) => {
-    const slotStart = parseTimeToMinutes(slot.startTime);
-    let cursor = slotStart;
     let remaining = slot.durationMinutes;
-    const slotLimit = slot.durationMinutes >= 180 ? 2 : 1;
+    let cursor = parseTimeToMinutes(slot.startTime);
+    const slotLimit = slot.durationMinutes >= 200 ? 2 : 1;
     let added = 0;
 
     while (remainingPois.length > 0 && remaining > 40 && added < slotLimit) {
-      const poi = remainingPois.shift();
+      const selected = pickBestPoiForSlot({
+        remainingPois,
+        slot,
+        travelerMode,
+        profile,
+      });
+
+      if (!selected) {
+        break;
+      }
+
+      const { poi } = selected;
       const travelMinutes = Math.min(poi.travelMinutes || 12, Math.max(6, Math.floor(remaining / 3)));
       const stayMinutes = Math.min(poi.visitDurationMinutes || 45, remaining - travelMinutes);
 
@@ -162,8 +380,15 @@ function buildDeterministicItinerary({
         continue;
       }
 
+      const selectedIndex = remainingPois.findIndex((candidate) => candidate.id === poi.id);
+
+      if (selectedIndex >= 0) {
+        remainingPois.splice(selectedIndex, 1);
+      }
+
       const startMinutes = cursor + travelMinutes;
       const endMinutes = startMinutes + stayMinutes;
+      const reasoningPoints = buildReasonDetails({ poi, travelerMode, slot, profile });
 
       timeline.push({
         id: `${slot.id}-${poi.id}`,
@@ -176,14 +401,32 @@ function buildDeterministicItinerary({
         durationMinutes: stayMinutes,
         travelMinutes,
         distanceMeters: poi.distanceMeters || null,
-        score: poi.score,
-        reason: buildReason(poi, travelerMode),
-        highlight: `${poi.categoryLabel} stop with ${travelMinutes} min transit`,
+        score: selected.slotScore,
+        reason: buildReason({ poi, travelerMode, slot, profile }),
+        highlight: buildHighlight(poi, slot),
+        explanation: {
+          whyChosen: reasoningPoints,
+          personalization:
+            poi.interestMatches?.length || poi.noteMatches?.length
+              ? "Directly tied to your interests and notes."
+              : "Chosen mainly for fit, local character, and route efficiency.",
+          scheduleFit: buildScheduleFit(slot),
+          tradeoff:
+            travelMinutes > 15
+              ? "Slightly longer transit was accepted because the stop scores well for relevance."
+              : "This stop stays close enough to protect the rest of the plan.",
+        },
         place: poi,
+        slotContext: {
+          label: slot.contextLabel,
+          slotType: slot.slotType,
+          previousMeeting: slot.previousMeeting || null,
+          nextMeeting: slot.nextMeeting || null,
+        },
       });
 
       cursor = endMinutes;
-      remaining = slotStart + slot.durationMinutes - cursor;
+      remaining = parseTimeToMinutes(slot.endTime) - cursor;
       added += 1;
     }
   });
@@ -200,15 +443,21 @@ function buildDeterministicItinerary({
     reason: item.reason,
   }));
 
+  const totalFreeMinutes = freeSlots.reduce((sum, slot) => sum + slot.durationMinutes, 0);
+  const totalVisitMinutes = timeline.reduce((sum, item) => sum + item.durationMinutes, 0);
+  const totalTravelMinutes = timeline.reduce((sum, item) => sum + item.travelMinutes, 0);
+  const usedMinutes = totalVisitMinutes + totalTravelMinutes;
+  const utilizationRate = totalFreeMinutes ? Math.min(100, Math.round((usedMinutes / totalFreeMinutes) * 100)) : 0;
+
   return {
     headline:
       travelerMode === "business"
-        ? "Workday windows turned into a realistic city plan"
-        : "A nearby city plan tuned to your current context",
+        ? "A meeting-aware city plan for your open windows"
+        : "A more personal city plan built around your current context",
     overview:
       timeline.length > 0
-        ? `This itinerary balances cultural value, proximity, and your available time across ${freeSlots.length} open window${freeSlots.length > 1 ? "s" : ""}.`
-        : "No strong nearby candidates fit the current timing, so the dashboard is holding a lightweight recommendation set for manual refinement.",
+        ? `This itinerary balances relevance, cultural payoff, and travel time across ${freeSlots.length} open window${freeSlots.length > 1 ? "s" : ""}, with each stop chosen for explicit fit rather than generic proximity alone.`
+        : "No strong nearby candidates fit the current timing, so the planner is holding a lightweight shortlist you can refine manually.",
     travelerMode,
     location,
     interests,
@@ -217,16 +466,28 @@ function buildDeterministicItinerary({
     timeline,
     mapPoints,
     shortlistedPois,
+    travelerProfile: profile,
+    decisionSummary: {
+      primaryLens: travelerMode === "business" ? "meeting buffers, short detours, and reset-friendly stops" : "interest alignment, local character, and route efficiency",
+      selectionConfidence: timeline.length >= 2 ? "high" : timeline.length === 1 ? "medium" : "low",
+      explanation: timeline.length
+        ? "Stops were selected by combining interest relevance, note matches, travel feasibility, and slot-specific fit."
+        : "No stop cleared the current fit threshold with enough spare time left for a confident recommendation.",
+    },
     stats: {
       rawPoiCount,
       selectedPoiCount: mapPoints.length,
-      totalTravelMinutes: timeline.reduce((sum, item) => sum + item.travelMinutes, 0),
-      totalVisitMinutes: timeline.reduce((sum, item) => sum + item.durationMinutes, 0),
+      totalTravelMinutes,
+      totalVisitMinutes,
+      totalFreeMinutes,
+      utilizationRate,
     },
     tips: [
-      "Favor the first stop if your available time shrinks unexpectedly.",
-      "Use the map to compare proximity before committing to a second stop.",
-      "Cultural sites were weighted above generic attractions in this pass.",
+      travelerMode === "business"
+        ? "Keep the first between-meeting stop if your schedule starts slipping."
+        : "Start with the highest-confidence stop if your time shrinks unexpectedly.",
+      "Use the reasoning panel to see whether a stop was chosen for interest fit, timing fit, or both.",
+      "If you regenerate, changing notes often shifts the route more than changing the headline interests.",
     ],
   };
 }

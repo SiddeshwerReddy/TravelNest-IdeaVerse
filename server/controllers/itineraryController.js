@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const Trip = require("../models/Trip");
 const { fetchNearbyPois } = require("../services/overpassService");
 const { calculateTravelMatrix } = require("../services/routingService");
@@ -8,6 +9,69 @@ const {
 } = require("../services/itineraryService");
 const { generateStructuredItinerary, hasGeminiConfig } = require("../services/geminiService");
 const { parseInterestInput } = require("../utils/interests");
+
+function toRadians(value) {
+  return (value * Math.PI) / 180;
+}
+
+function distanceBetweenKm(origin, destination) {
+  const earthRadiusKm = 6371;
+  const deltaLat = toRadians(destination.lat - origin.lat);
+  const deltaLng = toRadians(destination.lng - origin.lng);
+  const lat1 = toRadians(origin.lat);
+  const lat2 = toRadians(destination.lat);
+  const arc =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) * Math.sin(deltaLng / 2);
+
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(arc), Math.sqrt(1 - arc));
+}
+
+function buildTripTitle({ travelerMode, location, itinerary }) {
+  const anchor = location?.label || "Saved trip";
+  const prefix = travelerMode === "business" ? "Business plan" : "Leisure plan";
+  return itinerary?.headline ? `${prefix} • ${anchor}` : anchor;
+}
+
+function buildTripAnalytics(itinerary) {
+  const timeline = Array.isArray(itinerary?.timeline) ? itinerary.timeline : [];
+  const categoryCounts = {};
+  const placeCounts = {};
+
+  timeline.forEach((item) => {
+    const category = item.category || "Other";
+    const place = item.title || "Unknown place";
+    categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+    placeCounts[place] = (placeCounts[place] || 0) + 1;
+  });
+
+  return {
+    categoryCounts,
+    placeCounts,
+    stopTitles: timeline.map((item) => item.title).filter(Boolean),
+  };
+}
+
+function formatTripSummary(trip) {
+  const analytics = buildTripAnalytics(trip.itinerary);
+
+  return {
+    id: String(trip._id),
+    title: trip.title || buildTripTitle({ travelerMode: trip.mode, location: trip.location, itinerary: trip.itinerary }),
+    mode: trip.mode,
+    location: trip.location,
+    updatedAt: trip.updatedAt,
+    createdAt: trip.createdAt,
+    preferences: trip.preferences || [],
+    notes: trip.notes || "",
+    sourceDocumentName: trip.sourceDocumentName || "",
+    stats: trip.itinerary?.stats || null,
+    travelerProfile: trip.itinerary?.travelerProfile || trip.travelerProfile || null,
+    itineraryHeadline: trip.itinerary?.headline || "",
+    itineraryOverview: trip.itinerary?.overview || "",
+    analytics,
+  };
+}
 
 exports.optimizeItinerary = async (req, res) => {
   try {
@@ -25,6 +89,7 @@ exports.optimizeItinerary = async (req, res) => {
       travelerMode,
       freeSlots: req.body.freeSlots,
       availableMinutes: req.body.availableMinutes,
+      scheduleData: req.body.schedule,
     });
 
     if (!location || typeof location.lat !== "number" || typeof location.lng !== "number") {
@@ -34,22 +99,6 @@ exports.optimizeItinerary = async (req, res) => {
     }
 
     let rawPois = Array.isArray(req.body.rawPois) && req.body.rawPois.length > 0 ? req.body.rawPois : [];
-
-    if (rawPois.length === 0) {
-      try {
-        rawPois = await fetchNearbyPois({
-          lat: location.lat,
-          lng: location.lng,
-          freeMinutes: freeSlots[0]?.durationMinutes || Number(req.body.availableMinutes) || 120,
-          radiusMeters: req.body.radiusMeters ? Number(req.body.radiusMeters) : undefined,
-          travelerMode,
-          interests: preferences,
-        });
-      } catch (poiError) {
-        console.warn("POI fetch failed during itinerary optimization:", poiError.message);
-        rawPois = [];
-      }
-    }
 
     rawPois = rawPois
       .map((poi, index) => ({
@@ -67,6 +116,28 @@ exports.optimizeItinerary = async (req, res) => {
         address: poi.address || "",
       }))
       .filter((poi) => Number.isFinite(poi.lat) && Number.isFinite(poi.lng));
+
+    if (rawPois.length > 0) {
+      rawPois = rawPois.filter(
+        (poi) => distanceBetweenKm(location, { lat: poi.lat, lng: poi.lng }) <= 40
+      );
+    }
+
+    if (rawPois.length === 0) {
+      try {
+        rawPois = await fetchNearbyPois({
+          lat: location.lat,
+          lng: location.lng,
+          freeMinutes: freeSlots[0]?.durationMinutes || Number(req.body.availableMinutes) || 120,
+          radiusMeters: req.body.radiusMeters ? Number(req.body.radiusMeters) : undefined,
+          travelerMode,
+          interests: preferences,
+        });
+      } catch (poiError) {
+        console.warn("POI fetch failed during itinerary optimization:", poiError.message);
+        rawPois = [];
+      }
+    }
 
     const prerankedPois = optimizeCandidatePlaces({
       pois: rawPois,
@@ -116,6 +187,19 @@ exports.optimizeItinerary = async (req, res) => {
 
     try {
       const savedTrip = await Trip.create({
+        user: req.dbUser?._id || null,
+        userSnapshot: req.dbUser
+          ? {
+              clerkId: req.dbUser.clerkId,
+              fullName: req.dbUser.fullName,
+              email: req.dbUser.email,
+            }
+          : {
+              clerkId: req.auth?.userId || "",
+              fullName: req.clerkUser?.fullName || "",
+              email: req.clerkUser?.emailAddresses?.[0]?.emailAddress || "",
+            },
+        title: buildTripTitle({ travelerMode, location, itinerary }),
         mode: travelerMode,
         location,
         preferences,
@@ -126,10 +210,12 @@ exports.optimizeItinerary = async (req, res) => {
         rawPois: rawPois.slice(0, 30),
         itinerary,
         sourceDocumentName: req.body.documentName || null,
+        travelerProfile: itinerary.travelerProfile || null,
       });
 
       tripId = savedTrip._id;
     } catch (persistError) {
+      console.warn("Trip persistence failed:", persistError.message);
       tripId = null;
     }
 
@@ -154,6 +240,74 @@ exports.optimizeItinerary = async (req, res) => {
     res.status(500).json({
       error: error.message || "Failed to optimize itinerary.",
       stage: "optimize-itinerary",
+    });
+  }
+};
+
+exports.listTripHistory = async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.json({
+        trips: [],
+        storage: "unavailable",
+      });
+    }
+
+    const query = req.dbUser?._id
+      ? {
+          $or: [{ user: req.dbUser._id }, { "userSnapshot.clerkId": req.auth.userId }],
+        }
+      : { "userSnapshot.clerkId": req.auth.userId };
+
+    const trips = await Trip.find(query).sort({ updatedAt: -1 }).limit(12).lean();
+
+    return res.json({
+      trips: trips.map(formatTripSummary),
+      storage: "mongodb",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      error: error.message || "Failed to load trip history.",
+    });
+  }
+};
+
+exports.getTripHistoryItem = async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        error: "MongoDB is not connected.",
+      });
+    }
+
+    const query = req.dbUser?._id
+      ? {
+          _id: req.params.tripId,
+          $or: [{ user: req.dbUser._id }, { "userSnapshot.clerkId": req.auth.userId }],
+        }
+      : { _id: req.params.tripId, "userSnapshot.clerkId": req.auth.userId };
+
+    const trip = await Trip.findOne(query).lean();
+
+    if (!trip) {
+      return res.status(404).json({
+        error: "Trip not found.",
+      });
+    }
+
+    return res.json({
+      trip: {
+        ...formatTripSummary(trip),
+        schedule: trip.scheduleData || null,
+        scheduleText: trip.scheduleText || "",
+        freeSlots: trip.freeSlots || [],
+        rawPois: trip.rawPois || [],
+        itinerary: trip.itinerary || null,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      error: error.message || "Failed to load trip.",
     });
   }
 };

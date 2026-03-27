@@ -87,7 +87,7 @@ function buildFreeSlots(meetings, { dayStart = "08:00", dayEnd = "21:00" } = {})
   const slots = [];
   let cursor = startMinutes;
 
-  normalizedMeetings.forEach((meeting) => {
+  normalizedMeetings.forEach((meeting, index) => {
     const meetingStart = parseTimeToMinutes(meeting.startTime);
     const meetingEnd = parseTimeToMinutes(meeting.endTime);
 
@@ -95,6 +95,9 @@ function buildFreeSlots(meetings, { dayStart = "08:00", dayEnd = "21:00" } = {})
       slots.push({
         startMinutes: cursor,
         endMinutes: meetingStart,
+        slotType: index === 0 ? "before-first-meeting" : "between-meetings",
+        previousMeeting: index > 0 ? normalizedMeetings[index - 1] : null,
+        nextMeeting: meeting,
       });
     }
 
@@ -105,6 +108,9 @@ function buildFreeSlots(meetings, { dayStart = "08:00", dayEnd = "21:00" } = {})
     slots.push({
       startMinutes: cursor,
       endMinutes,
+      slotType: normalizedMeetings.length ? "after-last-meeting" : "open-day",
+      previousMeeting: normalizedMeetings.at(-1) || null,
+      nextMeeting: null,
     });
   }
 
@@ -118,6 +124,31 @@ function buildFreeSlots(meetings, { dayStart = "08:00", dayEnd = "21:00" } = {})
       startLabel: minutesToReadableLabel(slot.startMinutes),
       endLabel: minutesToReadableLabel(slot.endMinutes),
       durationMinutes: slot.endMinutes - slot.startMinutes,
+      slotType: slot.slotType,
+      contextLabel:
+        slot.slotType === "before-first-meeting"
+          ? "Before your first meeting"
+          : slot.slotType === "between-meetings"
+            ? "Between meetings"
+            : slot.slotType === "after-last-meeting"
+              ? "After your last meeting"
+              : "Flexible open window",
+      previousMeeting: slot.previousMeeting
+        ? {
+            id: slot.previousMeeting.id,
+            title: slot.previousMeeting.title,
+            endTime: slot.previousMeeting.endTime,
+            endLabel: slot.previousMeeting.endLabel,
+          }
+        : null,
+      nextMeeting: slot.nextMeeting
+        ? {
+            id: slot.nextMeeting.id,
+            title: slot.nextMeeting.title,
+            startTime: slot.nextMeeting.startTime,
+            startLabel: slot.nextMeeting.startLabel,
+          }
+        : null,
     }));
 }
 

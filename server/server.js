@@ -39,6 +39,8 @@ app.get("/", (req, res) => {
       "GET /api/auth/me",
       "POST /api/extract-schedule",
       "GET /api/fetch-pois",
+      "GET /api/optimize-itinerary/history",
+      "GET /api/optimize-itinerary/history/:tripId",
       "POST /api/optimize-itinerary",
     ],
   });

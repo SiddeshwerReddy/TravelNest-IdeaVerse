@@ -1,8 +1,20 @@
+import { useEffect, useState } from "react";
+import { useAuth } from "@clerk/clerk-react";
 import { Link } from "react-router-dom";
-import { ArrowRight, CalendarClock, MapPinned, RefreshCw, Sparkles } from "lucide-react";
+import {
+  ArrowRight,
+  BrainCircuit,
+  CalendarClock,
+  Database,
+  LoaderCircle,
+  MapPinned,
+  RefreshCw,
+  Sparkles,
+} from "lucide-react";
 import { usePlanner } from "../context/PlannerContext.jsx";
 import ItineraryMap from "../components/ItineraryMap.jsx";
 import ItineraryTimeline from "../components/ItineraryTimeline.jsx";
+import { fetchTripById, fetchTripHistory } from "../lib/api.js";
 import { formatCoordinates, formatMinutes } from "../lib/formatters.js";
 
 function StatCard({ label, value, caption }) {
@@ -15,10 +27,84 @@ function StatCard({ label, value, caption }) {
   );
 }
 
+function formatSavedDate(value) {
+  if (!value) {
+    return "Just now";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
 export default function ItineraryDashboardPage() {
-  const { plannerState, resetPlannerState } = usePlanner();
+  const { getToken } = useAuth();
+  const { plannerState, mergePlannerState, resetPlannerState } = usePlanner();
   const itinerary = plannerState.itinerary;
   const ai = plannerState.ai;
+  const [historyStatus, setHistoryStatus] = useState("idle");
+  const [historyError, setHistoryError] = useState("");
+  const [loadingTripId, setLoadingTripId] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadHistory() {
+      try {
+        setHistoryStatus("loading");
+        const data = await fetchTripHistory(getToken);
+
+        if (!isMounted) {
+          return;
+        }
+
+        mergePlannerState({
+          tripHistory: data.trips || [],
+          storageStatus: data.storage || "",
+        });
+        setHistoryStatus("success");
+      } catch (requestError) {
+        if (!isMounted) {
+          return;
+        }
+
+        setHistoryError(requestError.response?.data?.error || "Unable to load saved trip history.");
+        setHistoryStatus("error");
+      }
+    }
+
+    loadHistory();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [getToken, mergePlannerState]);
+
+  async function handleLoadTrip(tripId) {
+    try {
+      setLoadingTripId(tripId);
+      const response = await fetchTripById(tripId, getToken);
+      const trip = response.trip;
+
+      mergePlannerState({
+        mode: trip.mode,
+        location: trip.location,
+        interests: trip.preferences || [],
+        notes: trip.notes || "",
+        schedule: trip.schedule || null,
+        scheduleText: trip.scheduleText || "",
+        freeSlots: trip.freeSlots || [],
+        rawPois: trip.rawPois || [],
+        itinerary: trip.itinerary || null,
+        tripId: trip.id,
+      });
+    } catch (requestError) {
+      setHistoryError(requestError.response?.data?.error || "Unable to load that trip.");
+    } finally {
+      setLoadingTripId("");
+    }
+  }
 
   if (!itinerary) {
     return (
@@ -30,7 +116,7 @@ export default function ItineraryDashboardPage() {
           </h1>
           <p className="mt-5 text-base leading-7 text-slate-300">
             Start with either Business Setup or Leisure Setup, then generate the plan to unlock the
-            timeline and map view.
+            timeline, reasoning panels, and saved history.
           </p>
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
             <Link
@@ -56,16 +142,19 @@ export default function ItineraryDashboardPage() {
       <div className="flex flex-col gap-6">
         <div className="rounded-[2rem] border border-white/10 bg-white/[0.05] p-6 shadow-[0_18px_45px_rgba(2,6,23,0.24)]">
           <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-            <div>
+            <div className="max-w-4xl">
               <p className="text-sm uppercase tracking-[0.35em] text-slate-400">
                 {itinerary.travelerMode} itinerary
               </p>
               <h1 className="display-type mt-3 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
                 {itinerary.headline}
               </h1>
-              <p className="mt-4 max-w-3xl text-base leading-7 text-slate-300">
-                {itinerary.overview}
-              </p>
+              <p className="mt-4 text-base leading-7 text-slate-300">{itinerary.overview}</p>
+              {itinerary.travelerProfile?.summary ? (
+                <p className="mt-4 rounded-2xl border border-cyan-300/15 bg-cyan-400/[0.06] px-4 py-3 text-sm text-cyan-100">
+                  {itinerary.travelerProfile.summary}
+                </p>
+              ) : null}
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -95,11 +184,6 @@ export default function ItineraryDashboardPage() {
             caption="Stops that fit the current time budget."
           />
           <StatCard
-            label="Raw POI Pool"
-            value={String(itinerary.stats.rawPoiCount)}
-            caption="Nearby places considered before scoring."
-          />
-          <StatCard
             label="Visit Time"
             value={formatMinutes(itinerary.stats.totalVisitMinutes)}
             caption="Estimated time spent at places."
@@ -109,32 +193,49 @@ export default function ItineraryDashboardPage() {
             value={formatMinutes(itinerary.stats.totalTravelMinutes)}
             caption="Estimated routing overhead across the plan."
           />
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-3">
           <StatCard
-            label="Discovery Radius"
-            value={
-              plannerState.poiRadiusMeters
-                ? `${Math.round(plannerState.poiRadiusMeters / 100) / 10} km`
-                : "Auto"
-            }
-            caption="Effective search distance used for the POI pool."
-          />
-          <StatCard
-            label="POI Source"
-            value={plannerState.poiSource || "prefetched"}
-            caption="Whether places came from live Overpass or fallback generation."
-          />
-          <StatCard
-            label="AI Refinement"
-            value={ai?.used ? "Gemini" : ai?.configured ? "Fallback" : "Disabled"}
-            caption="Shows whether the wording/refinement step used Gemini."
+            label="Window Usage"
+            value={`${itinerary.stats.utilizationRate || 0}%`}
+            caption="How much of your free time the current plan uses."
           />
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-          <div className="space-y-6">
+        <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+          <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.05] p-5 shadow-[0_18px_45px_rgba(2,6,23,0.24)]">
+                <div className="flex items-center gap-3">
+                  <BrainCircuit className="h-5 w-5 text-cyan-300" />
+                  <div>
+                    <p className="text-sm uppercase tracking-[0.25em] text-slate-400">Decision Lens</p>
+                    <p className="mt-2 text-lg font-semibold text-white">
+                      {itinerary.decisionSummary?.primaryLens || "Balanced fit"}
+                    </p>
+                  </div>
+                </div>
+                <p className="mt-4 text-sm leading-7 text-slate-300">
+                  {itinerary.decisionSummary?.explanation}
+                </p>
+              </div>
+
+              <div className="rounded-[1.75rem] border border-white/10 bg-white/[0.05] p-5 shadow-[0_18px_45px_rgba(2,6,23,0.24)]">
+                <div className="flex items-center gap-3">
+                  <Database className="h-5 w-5 text-emerald-300" />
+                  <div>
+                    <p className="text-sm uppercase tracking-[0.25em] text-slate-400">Saved Trip + AI</p>
+                    <p className="mt-2 text-lg font-semibold text-white">
+                      {ai?.used ? "Stored and refined" : plannerState.tripId ? "Stored in MongoDB" : "Unsaved"}
+                    </p>
+                  </div>
+                </div>
+                <p className="mt-4 text-sm leading-7 text-slate-300">
+                  {plannerState.tripId
+                    ? `Trip ID ${plannerState.tripId} is available in your saved history${ai?.used ? ", and the explanation layer was polished with Gemini." : "."}`
+                    : "This session is still visible locally, but MongoDB persistence was unavailable for this pass."}
+                </p>
+              </div>
+            </div>
+
             <div className="rounded-[2rem] border border-white/10 bg-white/[0.05] p-6 shadow-[0_18px_45px_rgba(2,6,23,0.24)]">
               <div className="flex items-center justify-between">
                 <div>
@@ -179,11 +280,14 @@ export default function ItineraryDashboardPage() {
                     <CalendarClock className="mt-1 h-4 w-4 text-fuchsia-300" />
                     <div>
                       <p className="font-semibold text-white">Free windows</p>
-                      <div className="mt-2 space-y-1">
+                      <div className="mt-2 space-y-3">
                         {itinerary.freeSlots.map((slot) => (
-                          <p key={slot.id}>
-                            {slot.startLabel} - {slot.endLabel} ({formatMinutes(slot.durationMinutes)})
-                          </p>
+                          <div key={slot.id}>
+                            <p>
+                              {slot.startLabel} - {slot.endLabel} ({formatMinutes(slot.durationMinutes)})
+                            </p>
+                            <p className="text-xs text-slate-400">{slot.contextLabel}</p>
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -215,6 +319,62 @@ export default function ItineraryDashboardPage() {
                     ))}
                   </div>
                 </div>
+              </div>
+            </div>
+
+            <div className="rounded-[2rem] border border-white/10 bg-white/[0.05] p-6 shadow-[0_18px_45px_rgba(2,6,23,0.24)]">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm uppercase tracking-[0.3em] text-slate-400">Saved History</p>
+                  <h2 className="mt-2 text-2xl font-semibold text-white">Reopen past trips</h2>
+                </div>
+                <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-slate-300">
+                  {plannerState.storageStatus || "local"}
+                </div>
+              </div>
+
+              <div className="mt-5 space-y-3">
+                {historyStatus === "loading" ? (
+                  <div className="flex items-center gap-2 text-sm text-slate-300">
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                    Loading saved trips...
+                  </div>
+                ) : null}
+                {historyError ? (
+                  <div className="rounded-2xl border border-rose-300/20 bg-rose-500/10 p-4 text-sm text-rose-100">
+                    {historyError}
+                  </div>
+                ) : null}
+                {!plannerState.tripHistory?.length && historyStatus === "success" ? (
+                  <p className="text-sm leading-7 text-slate-300">
+                    Generate a trip while MongoDB is connected and it will appear here for quick reload.
+                  </p>
+                ) : null}
+                {(plannerState.tripHistory || []).map((trip) => (
+                  <button
+                    key={trip.id}
+                    type="button"
+                    onClick={() => handleLoadTrip(trip.id)}
+                    disabled={loadingTripId === trip.id}
+                    className="w-full rounded-[1.5rem] border border-white/10 bg-black/[0.18] p-4 text-left transition hover:border-cyan-300/25 hover:bg-black/[0.24] disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="font-semibold text-white">{trip.title}</p>
+                        <p className="mt-1 text-sm text-slate-300">
+                          {trip.location?.label || "Saved area"} • {trip.mode}
+                        </p>
+                        <p className="mt-2 text-sm text-slate-400">{trip.itineraryHeadline}</p>
+                      </div>
+                      <div className="text-right text-xs text-slate-400">
+                        <p>{formatSavedDate(trip.updatedAt)}</p>
+                        <p className="mt-2">
+                          {trip.stats?.selectedPoiCount || 0} stops • {formatMinutes(trip.stats?.totalVisitMinutes || 0)}
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
           </div>

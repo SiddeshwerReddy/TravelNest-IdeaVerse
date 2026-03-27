@@ -53,8 +53,33 @@ export async function fetchPois(params, getToken) {
   return response.data;
 }
 
+export async function geocodePlace(query, getToken) {
+  const response = await api.get("/api/fetch-pois/geocode", {
+    params: { query },
+    headers: await buildAuthHeaders(getToken),
+  });
+
+  return response.data;
+}
+
 export async function optimizeItinerary(payload, getToken) {
   const response = await api.post("/api/optimize-itinerary", payload, {
+    headers: await buildAuthHeaders(getToken),
+  });
+
+  return response.data;
+}
+
+export async function fetchTripHistory(getToken) {
+  const response = await api.get("/api/optimize-itinerary/history", {
+    headers: await buildAuthHeaders(getToken),
+  });
+
+  return response.data;
+}
+
+export async function fetchTripById(tripId, getToken) {
+  const response = await api.get(`/api/optimize-itinerary/history/${tripId}`, {
     headers: await buildAuthHeaders(getToken),
   });
 

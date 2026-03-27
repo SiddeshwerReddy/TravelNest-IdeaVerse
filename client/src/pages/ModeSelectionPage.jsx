@@ -93,7 +93,7 @@ export default function ModeSelectionPage() {
                   <SignedIn>
                     <Link
                       to={mode.path}
-                      className="mt-8 inline-flex items-center gap-2 rounded-full border border-white/15 bg-[linear-gradient(135deg,#f8fafc,#dbeafe)] px-5 py-3 font-semibold text-slate-950 shadow-[0_12px_30px_rgba(255,255,255,0.16)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_18px_36px_rgba(255,255,255,0.2)]"
+                      className="mt-8 inline-flex items-center gap-2 rounded-full border border-white/15 bg-black px-5 py-3 font-semibold text-slate-950 shadow-[0_12px_30px_rgba(255,255,255,0.16)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_18px_36px_rgba(255,255,255,0.2)]"
                     >
                       Continue to Setup
                       <ArrowRight className="h-4 w-4" />

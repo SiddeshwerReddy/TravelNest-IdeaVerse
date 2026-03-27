@@ -7,6 +7,8 @@ import { usePlanner } from "../context/PlannerContext.jsx";
 import { fetchPois, geocodePlace, optimizeItinerary } from "../lib/api.js";
 import { formatCoordinates, formatMinutes, parseInterestString } from "../lib/formatters.js";
 
+const TIME_PRESETS = [90, 120, 180, 240, 360];
+
 function Panel({ title, subtitle, children }) {
   return (
     <section className="rounded-[1.75rem] border border-white/10 bg-white/[0.05] p-6 shadow-[0_18px_45px_rgba(2,6,23,0.24)]">
@@ -113,6 +115,16 @@ export default function LeisureSetupPage() {
   }, [areaLabel, mergePlannerState, plannerState.location?.lat]);
 
   const previewPois = plannerState.rawPois.slice(0, 8);
+
+  function updateAvailableMinutes(value) {
+    const numericValue = Number(value);
+
+    if (Number.isNaN(numericValue)) {
+      return;
+    }
+
+    setAvailableMinutes(Math.max(30, Math.min(720, numericValue)));
+  }
 
   async function resolvePlanningLocation() {
     const trimmedAreaLabel = areaLabel.trim();
@@ -336,19 +348,38 @@ export default function LeisureSetupPage() {
               </label>
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-200">
-                  Available time
+                  Available time in minutes
                 </span>
-                <select
+                <input
+                  type="number"
+                  min="30"
+                  max="720"
+                  step="15"
                   value={availableMinutes}
-                  onChange={(event) => setAvailableMinutes(Number(event.target.value))}
+                  onChange={(event) => updateAvailableMinutes(event.target.value)}
+                  placeholder="180"
                   className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-slate-100 outline-none transition focus:border-cyan-300/40"
-                >
-                  <option value={90}>90 minutes</option>
-                  <option value={120}>2 hours</option>
-                  <option value={180}>3 hours</option>
-                  <option value={240}>4 hours</option>
-                  <option value={360}>6 hours</option>
-                </select>
+                />
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {TIME_PRESETS.map((minutes) => (
+                    <button
+                      key={minutes}
+                      type="button"
+                      onClick={() => setAvailableMinutes(minutes)}
+                      className={[
+                        "rounded-full border px-3 py-2 text-xs font-medium transition",
+                        availableMinutes === minutes
+                          ? "border-cyan-300/40 bg-cyan-400/15 text-cyan-100"
+                          : "border-white/10 bg-white/5 text-slate-300 hover:border-white/20 hover:bg-white/10 hover:text-white",
+                      ].join(" ")}
+                    >
+                      {formatMinutes(minutes)}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 text-sm text-slate-400">
+                  Set any value from 30 to 720 minutes, or tap a quick preset.
+                </p>
               </label>
             </div>
 

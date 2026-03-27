@@ -235,11 +235,13 @@ export default function DashboardPage() {
         location: trip.location,
         interests: trip.preferences || [],
         notes: trip.notes || "",
+        refinementOptions: trip.itinerary?.refinementOptions || trip.refinementOptions || [],
         schedule: trip.schedule || null,
         scheduleText: trip.scheduleText || "",
         freeSlots: trip.freeSlots || [],
         rawPois: trip.rawPois || [],
         itinerary: trip.itinerary || null,
+        weatherContext: trip.itinerary?.weatherContext || null,
         tripId: trip.id,
       });
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/clerk-react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -8,7 +8,9 @@ import {
   CalendarClock,
   ChevronRight,
   CloudRain,
+  Copy,
   Database,
+  Download,
   Globe2,
   Layers3,
   LoaderCircle,
@@ -22,13 +24,17 @@ import {
 } from "lucide-react";
 import { usePlanner } from "../context/PlannerContext.jsx";
 import ItineraryMap from "../components/ItineraryMap.jsx";
+import RefinementChips from "../components/RefinementChips.jsx";
 import ItineraryTimeline from "../components/ItineraryTimeline.jsx";
-import { fetchTripById, fetchTripHistory } from "../lib/api.js";
+import { fetchTripById, fetchTripHistory, optimizeItinerary } from "../lib/api.js";
 import { formatCoordinates, formatMinutes } from "../lib/formatters.js";
+
+const MotionDiv = motion.div;
+const MotionSection = motion.section;
 
 function FadeSection({ children, className = "", delay = 0 }) {
   return (
-    <motion.section
+    <MotionSection
       initial={{ opacity: 0, y: 32 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.2 }}
@@ -36,13 +42,13 @@ function FadeSection({ children, className = "", delay = 0 }) {
       className={className}
     >
       {children}
-    </motion.section>
+    </MotionSection>
   );
 }
 
 function StatPill({ label, value, caption }) {
   return (
-    <motion.div
+    <MotionDiv
       whileHover={{ y: -10, scale: 1.01 }}
       transition={{ duration: 0.25 }}
       className="group relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.88),rgba(15,23,42,0.52))] p-5 shadow-[0_24px_80px_rgba(2,6,23,0.28)] backdrop-blur-md"
@@ -51,16 +57,18 @@ function StatPill({ label, value, caption }) {
       <p className="relative text-xs uppercase tracking-[0.32em] text-slate-400">{label}</p>
       <p className="relative mt-4 text-3xl font-semibold text-white sm:text-4xl">{value}</p>
       <p className="relative mt-3 max-w-[24ch] text-sm leading-6 text-slate-300">{caption}</p>
-    </motion.div>
+    </MotionDiv>
   );
 }
 
-function MetricStrip({ icon: Icon, label, value, meta, tone }) {
+function MetricStrip({ icon, label, value, meta, tone }) {
+  const MetricIcon = icon;
+
   return (
     <div className="rounded-[1.4rem] border border-white/10 bg-black/[0.18] p-4 backdrop-blur-md">
       <div className="flex items-start gap-3">
         <div className={["flex h-11 w-11 items-center justify-center rounded-2xl border", tone].join(" ")}>
-          <Icon className="h-5 w-5" />
+          <MetricIcon className="h-5 w-5" />
         </div>
         <div>
           <p className="text-xs uppercase tracking-[0.28em] text-slate-500">{label}</p>
@@ -83,31 +91,77 @@ function formatSavedDate(value) {
   }).format(new Date(value));
 }
 
+function formatRefinementLabel(value) {
+  return value
+    .split("_")
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
+function buildExportText({ itinerary, location, storageStatus }) {
+  const timelineLines = (itinerary.timeline || []).map(
+    (item, index) =>
+      `${index + 1}. ${item.title} | ${item.startTime} - ${item.endTime} | ${item.reason}`
+  );
+
+  return [
+    `Travel Nest Itinerary`,
+    ``,
+    `Headline: ${itinerary.headline}`,
+    `Mode: ${itinerary.travelerMode}`,
+    `Location: ${location?.label || "Unknown area"}`,
+    `Overview: ${itinerary.overview}`,
+    `Storage: ${storageStatus || "local"}`,
+    ``,
+    `Timeline`,
+    ...timelineLines,
+    ``,
+    `Tips`,
+    ...(itinerary.tips || []).map((tip) => `- ${tip}`),
+  ].join("\n");
+}
+
 export default function ItineraryDashboardPage() {
   const { getToken } = useAuth();
   const { plannerState, mergePlannerState, resetPlannerState } = usePlanner();
   const itinerary = plannerState.itinerary;
   const ai = plannerState.ai;
+  const [refinementOptions, setRefinementOptions] = useState(
+    plannerState.refinementOptions || itinerary?.refinementOptions || []
+  );
   const [historyStatus, setHistoryStatus] = useState("idle");
   const [historyError, setHistoryError] = useState("");
   const [loadingTripId, setLoadingTripId] = useState("");
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [actionMessage, setActionMessage] = useState("");
+
+  useEffect(() => {
+    setRefinementOptions(plannerState.refinementOptions || itinerary?.refinementOptions || []);
+  }, [itinerary, plannerState.refinementOptions]);
+
+  const loadHistory = useCallback(async () => {
+    const data = await fetchTripHistory(getToken);
+
+    mergePlannerState({
+      tripHistory: data.trips || [],
+      storageStatus: data.storage || "",
+    });
+
+    return data;
+  }, [getToken, mergePlannerState]);
 
   useEffect(() => {
     let isMounted = true;
 
-    async function loadHistory() {
+    async function loadHistoryList() {
       try {
         setHistoryStatus("loading");
-        const data = await fetchTripHistory(getToken);
+        await loadHistory();
 
         if (!isMounted) {
           return;
         }
 
-        mergePlannerState({
-          tripHistory: data.trips || [],
-          storageStatus: data.storage || "",
-        });
         setHistoryStatus("success");
       } catch (requestError) {
         if (!isMounted) {
@@ -119,12 +173,12 @@ export default function ItineraryDashboardPage() {
       }
     }
 
-    loadHistory();
+    loadHistoryList();
 
     return () => {
       isMounted = false;
     };
-  }, [getToken, mergePlannerState]);
+  }, [loadHistory]);
 
   async function handleLoadTrip(tripId) {
     try {
@@ -137,11 +191,13 @@ export default function ItineraryDashboardPage() {
         location: trip.location,
         interests: trip.preferences || [],
         notes: trip.notes || "",
+        refinementOptions: trip.itinerary?.refinementOptions || trip.refinementOptions || [],
         schedule: trip.schedule || null,
         scheduleText: trip.scheduleText || "",
         freeSlots: trip.freeSlots || [],
         rawPois: trip.rawPois || [],
         itinerary: trip.itinerary || null,
+        weatherContext: trip.itinerary?.weatherContext || null,
         tripId: trip.id,
       });
     } catch (requestError) {
@@ -150,6 +206,105 @@ export default function ItineraryDashboardPage() {
       setLoadingTripId("");
     }
   }
+
+  async function handleRegenerate() {
+    if (!itinerary || !plannerState.location) {
+      return;
+    }
+
+    try {
+      setActionMessage("");
+      setHistoryError("");
+      setIsRegenerating(true);
+
+      const response = await optimizeItinerary(
+        {
+          travelerMode: itinerary.travelerMode,
+          location: plannerState.location,
+          interests: plannerState.interests,
+          notes: plannerState.notes,
+          refinementOptions,
+          availableMinutes: plannerState.availableMinutes,
+          freeSlots: plannerState.freeSlots,
+          rawPois: plannerState.rawPois,
+          schedule: plannerState.schedule,
+          scheduleText: plannerState.scheduleText,
+          documentName: plannerState.documentName,
+        },
+        getToken
+      );
+
+      mergePlannerState({
+        refinementOptions,
+        itinerary: response.itinerary,
+        ai: response.ai,
+        weatherContext: response.weatherContext || null,
+        tripId: response.tripId || plannerState.tripId,
+        poiSource: response.poiSource || plannerState.poiSource,
+      });
+
+      await loadHistory();
+      setHistoryStatus("success");
+      setActionMessage("Itinerary refreshed with your latest refinement choices.");
+    } catch (requestError) {
+      setHistoryError(
+        requestError.response?.data?.error ||
+          requestError.message ||
+          "Unable to regenerate the itinerary right now."
+      );
+    } finally {
+      setIsRegenerating(false);
+    }
+  }
+
+  async function handleCopySummary() {
+    if (!itinerary) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        buildExportText({
+          itinerary,
+          location: plannerState.location,
+          storageStatus: plannerState.storageStatus,
+        })
+      );
+      setActionMessage("Itinerary summary copied to clipboard.");
+    } catch {
+      setActionMessage("Clipboard copy is not available in this browser.");
+    }
+  }
+
+  function handleDownloadSummary() {
+    if (!itinerary) {
+      return;
+    }
+
+    const fileText = buildExportText({
+      itinerary,
+      location: plannerState.location,
+      storageStatus: plannerState.storageStatus,
+    });
+    const blob = new Blob([fileText], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const fileSlug = itinerary.headline
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+
+    link.href = url;
+    link.download = `${fileSlug || "travel-nest-itinerary"}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setActionMessage("Itinerary summary downloaded.");
+  }
+
+  const refinementSummary = useMemo(
+    () => (refinementOptions || []).map(formatRefinementLabel),
+    [refinementOptions]
+  );
 
   if (!itinerary) {
     return (
@@ -238,17 +393,37 @@ export default function ItineraryDashboardPage() {
                   <Sparkles className="h-4 w-4" />
                   Reset Planner
                 </button>
+                <button
+                  type="button"
+                  onClick={handleCopySummary}
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-5 py-3 font-medium text-white transition duration-300 hover:-translate-y-0.5 hover:border-white/25 hover:bg-white/[0.1]"
+                >
+                  <Copy className="h-4 w-4" />
+                  Copy Summary
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadSummary}
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-5 py-3 font-medium text-white transition duration-300 hover:-translate-y-0.5 hover:border-white/25 hover:bg-white/[0.1]"
+                >
+                  <Download className="h-4 w-4" />
+                  Download
+                </button>
               </div>
+
+              {actionMessage ? (
+                <p className="mt-4 text-sm text-cyan-200">{actionMessage}</p>
+              ) : null}
             </div>
 
-            <motion.div
+            <MotionDiv
               initial={{ opacity: 0, x: 24 }}
               whileInView={{ opacity: 1, x: 0 }}
               viewport={{ once: true, amount: 0.3 }}
               transition={{ duration: 0.7, delay: 0.12 }}
               className="grid gap-4 self-start"
             >
-              <motion.div
+              <MotionDiv
                 animate={{ y: [0, -8, 0] }}
                 transition={{ duration: 5.2, repeat: Infinity, ease: "easeInOut" }}
                 className="rounded-[1.9rem] border border-white/10 bg-black/[0.2] p-5 backdrop-blur-xl"
@@ -267,7 +442,7 @@ export default function ItineraryDashboardPage() {
                 <p className="mt-4 text-sm leading-7 text-slate-300">
                   {itinerary.decisionSummary?.explanation}
                 </p>
-              </motion.div>
+              </MotionDiv>
 
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
                 <MetricStrip
@@ -289,7 +464,7 @@ export default function ItineraryDashboardPage() {
                   tone="border-amber-300/20 bg-amber-400/10 text-amber-100"
                 />
               </div>
-            </motion.div>
+            </MotionDiv>
           </div>
 
           <div className="grid gap-px border-t border-white/10 bg-white/10 md:grid-cols-4">
@@ -426,7 +601,49 @@ export default function ItineraryDashboardPage() {
           </div>
 
           <div className="space-y-6">
-            <motion.div
+            <MotionDiv
+              whileHover={{ y: -6 }}
+              transition={{ duration: 0.25 }}
+              className="rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.86),rgba(15,23,42,0.56))] p-6 shadow-[0_24px_80px_rgba(2,6,23,0.28)] backdrop-blur-md"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm uppercase tracking-[0.3em] text-slate-500">Regenerate</p>
+                  <h2 className="mt-2 text-2xl font-semibold text-white">Tune this itinerary</h2>
+                </div>
+                <button
+                  type="button"
+                  disabled={isRegenerating}
+                  onClick={handleRegenerate}
+                  className="inline-flex items-center gap-2 rounded-full bg-cyan-400 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {isRegenerating ? (
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  Regenerate
+                </button>
+              </div>
+
+              <div className="mt-5">
+                <RefinementChips
+                  value={refinementOptions}
+                  onChange={setRefinementOptions}
+                  travelerMode={itinerary.travelerMode}
+                />
+                <p className="mt-3 text-sm leading-7 text-slate-300">
+                  Adjust the route personality here, then regenerate without leaving the dashboard.
+                </p>
+                {refinementSummary.length ? (
+                  <p className="mt-3 text-sm text-cyan-200">
+                    Active: {refinementSummary.join(", ")}
+                  </p>
+                ) : null}
+              </div>
+            </MotionDiv>
+
+            <MotionDiv
               whileHover={{ y: -6 }}
               transition={{ duration: 0.25 }}
               className="rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.86),rgba(15,23,42,0.56))] p-6 shadow-[0_24px_80px_rgba(2,6,23,0.28)] backdrop-blur-md"
@@ -478,9 +695,9 @@ export default function ItineraryDashboardPage() {
                   </div>
                 </div>
               </div>
-            </motion.div>
+            </MotionDiv>
 
-            <motion.div
+            <MotionDiv
               whileHover={{ y: -6 }}
               transition={{ duration: 0.25 }}
               className="rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.86),rgba(15,23,42,0.56))] p-6 shadow-[0_24px_80px_rgba(2,6,23,0.28)] backdrop-blur-md"
@@ -551,7 +768,7 @@ export default function ItineraryDashboardPage() {
                   </button>
                 ))}
               </div>
-            </motion.div>
+            </MotionDiv>
 
             <div className="rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(12,18,34,0.92),rgba(12,18,34,0.6))] p-6 shadow-[0_24px_80px_rgba(2,6,23,0.28)] backdrop-blur-md">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

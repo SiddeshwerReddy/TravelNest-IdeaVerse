@@ -7,10 +7,10 @@ export default function MissingClerkConfig() {
           Add your Clerk publishable key to continue.
         </h1>
         <p className="mt-5 text-base leading-7 text-slate-300">
-          Set <code>VITE_CLERK_PUBLISHABLE_KEY</code> in <code>server/.env</code>,
-          then restart the client.
+          Set <code>VITE_CLERK_PUBLISHABLE_KEY</code> for the Vite client environment, then restart
+          the client.
         </p>
       </div>
     </div>
-  )
+  );
 }

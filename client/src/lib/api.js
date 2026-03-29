@@ -1,7 +1,11 @@
 import axios from "axios";
 
+const API_BASE_URL = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:5000",
+  // In local development, leave this empty so Vite can proxy `/api` requests.
+  // In production, set VITE_API_URL to the deployed backend origin.
+  baseURL: API_BASE_URL,
 });
 
 async function buildAuthHeaders(getToken) {

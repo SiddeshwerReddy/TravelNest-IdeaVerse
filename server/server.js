@@ -14,7 +14,7 @@ const app = express();
 
 const allowedOrigins = [
   "http://localhost:5173",
-  "https://travel-nest-idea-verse-client-r58gonhbn.vercel.app"
+  "https://travel-nest-idea-verse-client.vercel.app",
 ];
 
 app.use(

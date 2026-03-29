@@ -11,14 +11,29 @@ if (!process.env.CLERK_PUBLISHABLE_KEY && process.env.VITE_CLERK_PUBLISHABLE_KEY
 const connectDB = require("./config/db");
 
 const app = express();
-const clientOrigin = process.env.CLIENT_URL || "http://localhost:5173";
+
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://travel-nest-idea-verse-client-r58gonhbn.vercel.app"
+];
 
 app.use(
   cors({
-    origin: clientOrigin,
+    origin: function (origin, callback) {
+      // allow requests with no origin (Postman, mobile apps)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      // instead of throwing error → just block silently
+      return callback(null, false);
+    },
     credentials: true,
   })
 );
+
 app.use(clerkMiddleware());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
